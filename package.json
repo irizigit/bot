@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node bot.js"
+    "build": "./render-build.sh",
+  "start": "node \"index 1.js\""
   },
   "keywords": [],
   "author": "",
