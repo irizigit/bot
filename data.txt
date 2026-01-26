@@ -1,0 +1,338 @@
+[
+{"type":"header","version":"5.2.1","comment":"Export to JSON plugin for PHPMyAdmin"},
+{"type":"database","name":"mo7adaraty_db"},
+{"type":"table","name":"admin_messages","database":"mo7adaraty_db","data":
+[
+{"message_id":"1","student_user_id":"1","message_subject":"سثش","message_content":"ثب","admin_reply":"شصق","status":"replied","created_at":"2025-08-22 01:02:30","replied_at":"2025-08-22 01:02:41"},
+{"message_id":"2","student_user_id":"1","message_subject":"ثغف","message_content":"دج","admin_reply":null,"status":"pending_reply","created_at":"2025-08-28 23:14:51","replied_at":null}
+]
+}
+,{"type":"table","name":"classes","database":"mo7adaraty_db","data":
+[
+{"class_id":"1","class_name":"الفصل الأول"},
+{"class_id":"2","class_name":"الفصل الثاني"},
+{"class_id":"3","class_name":"الفصل الثالث"},
+{"class_id":"4","class_name":"الفصل الرابع"},
+{"class_id":"5","class_name":"الفصل الخامس"},
+{"class_id":"6","class_name":"الفصل السادس"}
+]
+}
+,{"type":"table","name":"comments","database":"mo7adaraty_db","data":
+[
+{"comment_id":"18","content_type":"post","content_id":"3","user_id":"1","comment_text":"عفه","created_at":"2025-08-23 15:50:26","updated_at":null},
+{"comment_id":"21","content_type":"post","content_id":"2","user_id":"1","comment_text":"سيقف","created_at":"2025-08-23 16:03:08","updated_at":null},
+{"comment_id":"22","content_type":"post","content_id":"6","user_id":"1","comment_text":"عهل","created_at":"2025-08-23 16:04:02","updated_at":null},
+{"comment_id":"23","content_type":"post","content_id":"6","user_id":"4","comment_text":"dqr","created_at":"2025-08-23 20:12:16","updated_at":null},
+{"comment_id":"24","content_type":"post","content_id":"4","user_id":"4","comment_text":"seq","created_at":"2025-08-23 20:12:33","updated_at":null},
+{"comment_id":"25","content_type":"post","content_id":"2","user_id":"4","comment_text":"rdq","created_at":"2025-08-23 20:12:42","updated_at":null},
+{"comment_id":"26","content_type":"post","content_id":"2","user_id":"5","comment_text":"fdyu","created_at":"2025-08-23 20:52:46","updated_at":null},
+{"comment_id":"27","content_type":"lecture","content_id":"10","user_id":"1","comment_text":"يق","created_at":"2025-08-23 22:42:56","updated_at":null},
+{"comment_id":"28","content_type":"lecture","content_id":"10","user_id":"1","comment_text":"يل","created_at":"2025-08-23 22:42:59","updated_at":null},
+{"comment_id":"30","content_type":"post","content_id":"10","user_id":"1","comment_text":"لعهم","created_at":"2025-08-28 21:00:31","updated_at":null},
+{"comment_id":"31","content_type":"exam","content_id":"3","user_id":"1","comment_text":",","created_at":"2025-09-14 11:52:16","updated_at":"2025-09-14 11:53:32"},
+{"comment_id":"32","content_type":"post","content_id":"14","user_id":"1","comment_text":"كمه","created_at":"2025-09-14 13:42:09","updated_at":null}
+]
+}
+,{"type":"table","name":"content_reactions","database":"mo7adaraty_db","data":
+[
+{"reaction_id":"3","user_id":"1","content_id":"3","content_type":"lecture","reaction_type":"like","created_at":"2025-08-22 21:38:41"},
+{"reaction_id":"7","user_id":"1","content_id":"5","content_type":"post","reaction_type":"like","created_at":"2025-08-23 16:02:33"},
+{"reaction_id":"9","user_id":"1","content_id":"3","content_type":"post","reaction_type":"like","created_at":"2025-08-23 16:02:38"},
+{"reaction_id":"11","user_id":"1","content_id":"2","content_type":"post","reaction_type":"like","created_at":"2025-08-23 16:03:03"},
+{"reaction_id":"12","user_id":"1","content_id":"4","content_type":"post","reaction_type":"like","created_at":"2025-08-23 16:23:13"},
+{"reaction_id":"13","user_id":"1","content_id":"4","content_type":"lecture","reaction_type":"like","created_at":"2025-08-23 16:31:53"},
+{"reaction_id":"14","user_id":"4","content_id":"4","content_type":"lecture","reaction_type":"like","created_at":"2025-08-23 17:19:47"},
+{"reaction_id":"15","user_id":"4","content_id":"6","content_type":"post","reaction_type":"like","created_at":"2025-08-23 17:21:05"},
+{"reaction_id":"16","user_id":"4","content_id":"5","content_type":"post","reaction_type":"like","created_at":"2025-08-23 17:21:06"},
+{"reaction_id":"17","user_id":"4","content_id":"1","content_type":"post","reaction_type":"like","created_at":"2025-08-23 19:52:16"},
+{"reaction_id":"18","user_id":"4","content_id":"2","content_type":"post","reaction_type":"like","created_at":"2025-08-23 19:52:17"},
+{"reaction_id":"19","user_id":"4","content_id":"4","content_type":"post","reaction_type":"like","created_at":"2025-08-23 20:12:30"},
+{"reaction_id":"20","user_id":"1","content_id":"6","content_type":"post","reaction_type":"like","created_at":"2025-08-23 22:37:11"},
+{"reaction_id":"25","user_id":"1","content_id":"10","content_type":"post","reaction_type":"like","created_at":"2025-08-28 21:00:33"},
+{"reaction_id":"28","user_id":"1","content_id":"3","content_type":"exam","reaction_type":"like","created_at":"2025-09-14 13:27:23"},
+{"reaction_id":"31","user_id":"1","content_id":"18","content_type":"lecture","reaction_type":"like","created_at":"2025-09-14 15:26:14"},
+{"reaction_id":"32","user_id":"1","content_id":"6","content_type":"lecture","reaction_type":"like","created_at":"2025-09-20 01:21:28"}
+]
+}
+,{"type":"table","name":"course_offerings","database":"mo7adaraty_db","data":
+[
+{"offering_id":"2","division_id":"1","class_id":"1","group_id":"1","track_id":null},
+{"offering_id":"3","division_id":"1","class_id":"5","group_id":"7","track_id":"1"},
+{"offering_id":"4","division_id":"1","class_id":"1","group_id":"2","track_id":null},
+{"offering_id":"5","division_id":"1","class_id":"2","group_id":"1","track_id":null},
+{"offering_id":"6","division_id":"1","class_id":"1","group_id":"3","track_id":null},
+{"offering_id":"7","division_id":"1","class_id":"2","group_id":"4","track_id":null}
+]
+}
+,{"type":"table","name":"divisions","database":"mo7adaraty_db","data":
+[
+{"division_id":"1","division_name":"شعبة الدراسات الاسلامية"}
+]
+}
+,{"type":"table","name":"enrollment_change_requests","database":"mo7adaraty_db","data":
+[
+{"request_id":"1","user_id":"2","current_enrollment_info":"شعبة الدراسات الاسلامية > الفصل الأول \/ الفوج 1\n","requested_offering_id":"2","reason":"","status":"completed","request_date":"2025-08-22 00:55:35"},
+{"request_id":"2","user_id":"1","current_enrollment_info":"شعبة الدراسات الاسلامية > الفصل الأول \/ الفوج 1\nشعبة الدراسات الاسلامية > الفصل الأول \/ الفوج 2\n","requested_offering_id":"3","reason":"بلغهفةغ_ق-","status":"rejected","request_date":"2025-08-23 22:24:55"}
+]
+}
+,{"type":"table","name":"exams","database":"mo7adaraty_db","data":
+[
+{"exam_id":"3","title":"صسث","description":"","file_path":"uploads\/exams\/exam_68a7988fcb5560.17206403.pdf","file_type":"pdf","offering_subject_id":"2","class_id":"1","uploader_user_id":"1","upload_date":"2025-08-22 00:07:11"},
+{"exam_id":"4","title":"يفقع","description":"يفغه","file_path":"uploads\/exams\/exam_student_68a8cd73a39f25.34649214.pdf","file_type":"pdf","offering_subject_id":null,"class_id":"1","uploader_user_id":"2","upload_date":"2025-08-22 22:05:07"},
+{"exam_id":"5","title":"ته","description":"هحد","file_path":"uploads\/exams\/exam_student_68a8ce70908285.85537650.pdf","file_type":"pdf","offering_subject_id":null,"class_id":"1","uploader_user_id":"1","upload_date":"2025-08-22 22:09:20"}
+]
+}
+,{"type":"table","name":"global_announcements","database":"mo7adaraty_db","data":
+[
+{"announcement_id":"1","admin_user_id":"1","title":"صش(ث","content":"قسف","created_at":"2025-08-22 00:30:46"},
+{"announcement_id":"2","admin_user_id":"1","title":"صش(ث","content":"قسف","created_at":"2025-08-22 00:35:47"},
+{"announcement_id":"3","admin_user_id":"1","title":"ققف","content":"فغ","created_at":"2025-08-22 00:36:06"},
+{"announcement_id":"4","admin_user_id":"1","title":"يف","content":"يفسا","created_at":"2025-08-22 00:36:18"},
+{"announcement_id":"5","admin_user_id":"1","title":"يغع","content":"قغ","created_at":"2025-08-24 13:52:12"},
+{"announcement_id":"6","admin_user_id":"1","title":"بل","content":"سيال","created_at":"2025-08-24 14:00:33"},
+{"announcement_id":"7","admin_user_id":"1","title":"بل","content":"سيال","created_at":"2025-08-24 14:05:51"},
+{"announcement_id":"8","admin_user_id":"1","title":"بل","content":"سيال","created_at":"2025-08-24 14:06:02"},
+{"announcement_id":"9","admin_user_id":"1","title":"بل","content":"سيال","created_at":"2025-08-24 14:17:10"},
+{"announcement_id":"10","admin_user_id":"1","title":"رلا","content":"يفغا","created_at":"2025-08-24 14:22:09"},
+{"announcement_id":"11","admin_user_id":"1","title":"يل","content":"لربئ","created_at":"2025-09-19 23:26:47"}
+]
+}
+,{"type":"table","name":"groups","database":"mo7adaraty_db","data":
+[
+{"group_id":"1","group_name":"✨ G 1 ✨"},
+{"group_id":"2","group_name":"✨ G 2 ✨"},
+{"group_id":"3","group_name":"✨ G 3 ✨"},
+{"group_id":"4","group_name":"✨ G 4 ✨"},
+{"group_id":"5","group_name":"✨ G 5 ✨"},
+{"group_id":"6","group_name":"✨ G 6 ✨"},
+{"group_id":"7","group_name":"الفوج 7"},
+{"group_id":"8","group_name":"الفوج 8"}
+]
+}
+,{"type":"table","name":"lectures","database":"mo7adaraty_db","data":
+[
+{"lecture_id":"3","title":"ؤر","description":"","file_path":"uploads\/lectures\/lecture_68a79b367aaa94.31415513.pdf","file_type":"pdf","offering_id":"2","offering_subject_id":"4","uploader_user_id":"1","status":"approved","upload_date":"2025-08-22 00:18:30"},
+{"lecture_id":"4","title":"ييي","description":"بيء","file_path":"uploads\/lectures\/lecture_68a7b21e6146c8.13595910.pdf","file_type":"pdf","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-22 01:56:14"},
+{"lecture_id":"5","title":"ن","description":"","file_path":"uploads\/lectures\/lecture_68a7b3ee388ab8.96644389.pdf","file_type":"pdf","offering_id":"4","offering_subject_id":"5","uploader_user_id":"2","status":"approved","upload_date":"2025-08-22 02:03:58"},
+{"lecture_id":"6","title":"قبث","description":"","file_path":"uploads\/lectures\/lecture_68a7b47931cc31.86258748.pdf","file_type":"pdf","offering_id":"4","offering_subject_id":"5","uploader_user_id":"1","status":"approved","upload_date":"2025-08-22 02:06:17"},
+{"lecture_id":"7","title":"ؤلاه","description":"ؤرت","file_path":"uploads\/lectures\/lecture_68a9e0cc30bd58.65454330.png","file_type":"png","offering_id":"2","offering_subject_id":"4","uploader_user_id":"4","status":"approved","upload_date":"2025-08-23 17:39:56"},
+{"lecture_id":"8","title":"قفبا","description":"","file_path":"uploads\/lectures\/lecture_68aa0dc6681858.58141591.png","file_type":"png","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 20:51:50"},
+{"lecture_id":"9","title":"قفبا","description":"","file_path":"uploads\/lectures\/lecture_68aa0dc6681858.58141591.png","file_type":"png","offering_id":"4","offering_subject_id":"5","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 20:51:50"},
+{"lecture_id":"10","title":"ftgttttttttttttttttttttt","description":"","file_path":"uploads\/lectures\/lecture_68aa0f5b442563.16964186.png","file_type":"png","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 20:58:35"},
+{"lecture_id":"11","title":"er","description":"","file_path":"uploads\/lectures\/lecture_68aa12cb0240f7.17014430.png","file_type":"png","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:13:15"},
+{"lecture_id":"12","title":"qer1111111111111111","description":"","file_path":"uploads\/lectures\/lecture_68aa134940d5f3.99887051.png","file_type":"png","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:15:21"},
+{"lecture_id":"13","title":"qer1111111111111111","description":"","file_path":"uploads\/lectures\/lecture_68aa134940d5f3.99887051.png","file_type":"png","offering_id":"4","offering_subject_id":"7","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:15:21"},
+{"lecture_id":"14","title":"111111111111111111111","description":"","file_path":"uploads\/lectures\/lecture_68aa1c15951804.57373872.png","file_type":"png","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:52:53"},
+{"lecture_id":"15","title":"111111111111111111111","description":"","file_path":"uploads\/lectures\/lecture_68aa1c15951804.57373872.png","file_type":"png","offering_id":"4","offering_subject_id":"7","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:52:53"},
+{"lecture_id":"16","title":"dfd","description":"","file_path":"uploads\/lectures\/lecture_68aa1c479f0021.11816448.png","file_type":"png","offering_id":"2","offering_subject_id":"2","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:53:43"},
+{"lecture_id":"17","title":"dfd","description":"","file_path":"uploads\/lectures\/lecture_68aa1c479f0021.11816448.png","file_type":"png","offering_id":"4","offering_subject_id":"7","uploader_user_id":"1","status":"approved","upload_date":"2025-08-23 21:53:43"},
+{"lecture_id":"18","title":"اليبشثثثثثثثثثثثث","description":"","file_path":"uploads\/lectures\/lecture_68aafc2a6b19b1.08403799.png","file_type":"png","offering_id":"4","offering_subject_id":"5","uploader_user_id":"1","status":"approved","upload_date":"2025-08-24 13:48:58"},
+{"lecture_id":"19","title":"اليبشثثثثثثثثثثثث","description":"","file_path":"uploads\/lectures\/lecture_68aafc2a6b19b1.08403799.png","file_type":"png","offering_id":"6","offering_subject_id":"9","uploader_user_id":"1","status":"approved","upload_date":"2025-08-24 13:48:58"}
+]
+}
+,{"type":"table","name":"notifications","database":"mo7adaraty_db","data":
+[
+{"notification_id":"1","user_id":"1","message":"تم نشر امتحان جديد: صسث","link":"student\/class_exams.php?id=2","is_read":"1","created_at":"2025-08-22 00:07:11"},
+{"notification_id":"2","user_id":"1","message":"تم نشر محاضرة جديدة: ؤر","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-22 00:18:30"},
+{"notification_id":"3","user_id":"1","message":"إعلان جديد من الإدارة: صش(ث","link":"student\/announcements.php","is_read":"1","created_at":"2025-08-22 00:30:46"},
+{"notification_id":"4","user_id":"1","message":"إعلان جديد من الإدارة: صش(ث","link":"student\/announcements.php","is_read":"1","created_at":"2025-08-22 00:35:47"},
+{"notification_id":"5","user_id":"2","message":"تهانينا! تمت الموافقة على طلبك لتغيير المقرر الدراسي.","link":"student\/profil.php","is_read":"1","created_at":"2025-08-22 00:58:17"},
+{"notification_id":"6","user_id":"1","message":"لقد تلقيت رداً من الإدارة على رسالتك.","link":"student\/contact\/index.php","is_read":"1","created_at":"2025-08-22 01:02:41"},
+{"notification_id":"7","user_id":"1","message":"تهانينا! تم قبول ونشر محاضرتك: 'ييي'","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-22 01:58:25"},
+{"notification_id":"8","user_id":"2","message":"تمت إضافة محاضرة جديدة بعنوان: 'ييي'","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-22 01:58:25"},
+{"notification_id":"9","user_id":"2","message":"تهانينا! تم قبول ونشر محاضرتك: 'ن'","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-22 02:04:08"},
+{"notification_id":"10","user_id":"1","message":"تم نشر محاضرة جديدة: قبث","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-22 02:06:17"},
+{"notification_id":"11","user_id":"2","message":"تم نشر محاضرة جديدة: قبث","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-22 02:06:17"},
+{"notification_id":"12","user_id":"1","message":"قام الطالب admin538 بإضافة امتحان جديد: يفقع","link":"student\/class_exams.php?id=2","is_read":"1","created_at":"2025-08-22 22:05:07"},
+{"notification_id":"13","user_id":"2","message":"قام الطالب admin538 بإضافة امتحان جديد: يفقع","link":"student\/class_exams.php?id=2","is_read":"1","created_at":"2025-08-22 22:05:07"},
+{"notification_id":"14","user_id":"2","message":"قام الطالب admin538 بإضافة امتحان جديد: يفقع","link":"student\/class_exams.php?id=4","is_read":"1","created_at":"2025-08-22 22:05:08"},
+{"notification_id":"15","user_id":"1","message":"قام الطالب admin بإضافة امتحان جديد: ته","link":"student\/class_exams.php?id=2","is_read":"1","created_at":"2025-08-22 22:09:20"},
+{"notification_id":"16","user_id":"2","message":"قام الطالب admin بإضافة امتحان جديد: ته","link":"student\/class_exams.php?id=2","is_read":"1","created_at":"2025-08-22 22:09:20"},
+{"notification_id":"17","user_id":"2","message":"قام الطالب admin بإضافة امتحان جديد: ته","link":"student\/class_exams.php?id=4","is_read":"1","created_at":"2025-08-22 22:09:20"},
+{"notification_id":"18","user_id":"1","message":"تهانينا! تم قبول منشورك: 'شصق...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-23 12:25:01"},
+{"notification_id":"19","user_id":"1","message":"تهانينا! تم قبول منشورك: 'ثفغهتفغ...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-23 12:27:19"},
+{"notification_id":"20","user_id":"1","message":"تهانينا! تم قبول منشورك: '...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-23 12:28:24"},
+{"notification_id":"21","user_id":"1","message":"تهانينا! تم قبول منشورك: 'سفيغ...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-23 16:00:21"},
+{"notification_id":"22","user_id":"2","message":"تهانينا! تم قبول منشورك: 'ارم...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-23 16:00:23"},
+{"notification_id":"23","user_id":"2","message":"تهانينا! تم قبول منشورك: 'غعهغ...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-23 16:00:26"},
+{"notification_id":"24","user_id":"4","message":"تهانينا! تم قبول ونشر محاضرتك: 'ؤلاه'","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 17:43:55"},
+{"notification_id":"25","user_id":"1","message":"تمت إضافة محاضرة جديدة بعنوان: 'ؤلاه'","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 17:43:55"},
+{"notification_id":"26","user_id":"2","message":"تمت إضافة محاضرة جديدة بعنوان: 'ؤلاه'","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 17:43:55"},
+{"notification_id":"27","user_id":"1","message":"تم نشر محاضرة جديدة: قفبا","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 20:51:50"},
+{"notification_id":"28","user_id":"2","message":"تم نشر محاضرة جديدة: قفبا","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 20:51:50"},
+{"notification_id":"29","user_id":"2","message":"تم نشر محاضرة جديدة: قفبا","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 20:51:50"},
+{"notification_id":"30","user_id":"4","message":"تم نشر محاضرة جديدة: قفبا","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 20:51:50"},
+{"notification_id":"31","user_id":"4","message":"تم نشر محاضرة جديدة: قفبا","link":"student\/class_lectures.php?id=4","is_read":"0","created_at":"2025-08-23 20:51:50"},
+{"notification_id":"32","user_id":"5","message":"تم نشر محاضرة جديدة: قفبا","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 20:51:50"},
+{"notification_id":"33","user_id":"1","message":"تم نشر محاضرة جديدة: ftgttttttttttttttttttttt","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 20:58:35"},
+{"notification_id":"34","user_id":"2","message":"تم نشر محاضرة جديدة: ftgttttttttttttttttttttt","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 20:58:35"},
+{"notification_id":"35","user_id":"4","message":"تم نشر محاضرة جديدة: ftgttttttttttttttttttttt","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 20:58:35"},
+{"notification_id":"36","user_id":"5","message":"تم نشر محاضرة جديدة: ftgttttttttttttttttttttt","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 20:58:35"},
+{"notification_id":"37","user_id":"1","message":"تم نشر محاضرة جديدة: er","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:13:15"},
+{"notification_id":"38","user_id":"2","message":"تم نشر محاضرة جديدة: er","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:13:15"},
+{"notification_id":"39","user_id":"4","message":"تم نشر محاضرة جديدة: er","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:13:15"},
+{"notification_id":"40","user_id":"5","message":"تم نشر محاضرة جديدة: er","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:13:15"},
+{"notification_id":"41","user_id":"1","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"42","user_id":"2","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"43","user_id":"2","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"44","user_id":"4","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"45","user_id":"4","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=4","is_read":"0","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"46","user_id":"5","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"47","user_id":"1","message":"تم نشر محاضرة جديدة: qer1111111111111111","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 21:15:21"},
+{"notification_id":"48","user_id":"1","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"49","user_id":"2","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"50","user_id":"2","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"51","user_id":"4","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"52","user_id":"4","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=4","is_read":"0","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"53","user_id":"5","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"54","user_id":"1","message":"تم نشر محاضرة جديدة: 111111111111111111111","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 21:52:53"},
+{"notification_id":"55","user_id":"1","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"56","user_id":"2","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=2","is_read":"1","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"57","user_id":"2","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"58","user_id":"4","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"59","user_id":"4","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=4","is_read":"0","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"60","user_id":"5","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=2","is_read":"0","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"61","user_id":"1","message":"تم نشر محاضرة جديدة: dfd","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-23 21:53:43"},
+{"notification_id":"62","user_id":"1","message":"نأسف، تم رفض طلبك لتغيير المقرر الدراسي.","link":"student\/profil.php","is_read":"1","created_at":"2025-08-23 22:25:09"},
+{"notification_id":"63","user_id":"2","message":"تم نشر محاضرة جديدة: اليبشثثثثثثثثثثثث","link":"student\/class_lectures.php?id=4","is_read":"0","created_at":"2025-08-24 13:48:58"},
+{"notification_id":"64","user_id":"4","message":"تم نشر محاضرة جديدة: اليبشثثثثثثثثثثثث","link":"student\/class_lectures.php?id=4","is_read":"0","created_at":"2025-08-24 13:48:58"},
+{"notification_id":"65","user_id":"1","message":"تم نشر محاضرة جديدة: اليبشثثثثثثثثثثثث","link":"student\/class_lectures.php?id=4","is_read":"1","created_at":"2025-08-24 13:48:58"},
+{"notification_id":"66","user_id":"2","message":"تم نشر محاضرة جديدة: اليبشثثثثثثثثثثثث","link":"student\/class_lectures.php?id=6","is_read":"0","created_at":"2025-08-24 13:48:58"},
+{"notification_id":"67","user_id":"3","message":"إعلان جديد من الإدارة: يغع","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 13:52:12"},
+{"notification_id":"68","user_id":"6","message":"إعلان جديد من الإدارة: يغع","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 13:52:12"},
+{"notification_id":"69","user_id":"1","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"1","created_at":"2025-08-24 14:00:33"},
+{"notification_id":"70","user_id":"4","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:00:33"},
+{"notification_id":"71","user_id":"5","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:00:33"},
+{"notification_id":"72","user_id":"3","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:00:33"},
+{"notification_id":"73","user_id":"6","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:00:33"},
+{"notification_id":"74","user_id":"2","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:00:33"},
+{"notification_id":"75","user_id":"1","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"1","created_at":"2025-08-24 14:05:51"},
+{"notification_id":"76","user_id":"4","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:05:51"},
+{"notification_id":"77","user_id":"5","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:05:51"},
+{"notification_id":"78","user_id":"3","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:05:51"},
+{"notification_id":"79","user_id":"6","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:05:51"},
+{"notification_id":"80","user_id":"2","message":"إعلان جديد: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:05:51"},
+{"notification_id":"81","user_id":"1","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"1","created_at":"2025-08-24 14:06:02"},
+{"notification_id":"82","user_id":"4","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:06:02"},
+{"notification_id":"83","user_id":"5","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:06:02"},
+{"notification_id":"84","user_id":"3","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:06:02"},
+{"notification_id":"85","user_id":"6","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:06:02"},
+{"notification_id":"86","user_id":"2","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:06:02"},
+{"notification_id":"87","user_id":"1","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"1","created_at":"2025-08-24 14:17:10"},
+{"notification_id":"88","user_id":"4","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:17:10"},
+{"notification_id":"89","user_id":"5","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:17:10"},
+{"notification_id":"90","user_id":"3","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:17:10"},
+{"notification_id":"91","user_id":"6","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:17:10"},
+{"notification_id":"92","user_id":"2","message":"إعلان جديد من الإدارة: بل","link":"student\/announcements.php","is_read":"0","created_at":"2025-08-24 14:17:10"},
+{"notification_id":"93","user_id":"4","message":"تهانينا! تم قبول منشورك: 'قسففتن...'","link":"student\/community\/index.php","is_read":"0","created_at":"2025-08-25 12:27:14"},
+{"notification_id":"94","user_id":"2","message":"تهانينا! تم قبول منشورك: '-dyiuy...'","link":"student\/community\/index.php","is_read":"0","created_at":"2025-08-25 12:27:17"},
+{"notification_id":"95","user_id":"1","message":"تهانينا! تم قبول منشورك: 'ق-èه_...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-25 12:27:45"},
+{"notification_id":"96","user_id":"1","message":"تهانينا! تم قبول منشورك: 'فيغع...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-25 12:27:58"},
+{"notification_id":"97","user_id":"1","message":"تهانينا! تم قبول منشورك: 'أداة Kapwing لإنشاء روابط الفيديو مجانية ومتاحة تم...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-25 12:33:50"},
+{"notification_id":"98","user_id":"1","message":"تهانينا! تم قبول منشورك: '...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-25 12:35:24"},
+{"notification_id":"99","user_id":"1","message":"تهانينا! تم قبول منشورك: 'سهولة الاستخدام: يمكنك رفع الفيديو بسرعة والحصول ع...'","link":"student\/community\/index.php","is_read":"1","created_at":"2025-08-25 12:36:14"},
+{"notification_id":"100","user_id":"1","message":"نأسف، تم رفض محاضرتك 'شقف' بسبب: يا","link":"student\/my_lectures\/index.php","is_read":"1","created_at":"2025-08-28 21:33:41"},
+{"notification_id":"101","user_id":"2","message":"إعلان جديد من الإدارة: يل","link":"student\/announcements.php","is_read":"0","created_at":"2025-09-19 23:26:47"},
+{"notification_id":"102","user_id":"3","message":"إعلان جديد من الإدارة: يل","link":"student\/announcements.php","is_read":"0","created_at":"2025-09-19 23:26:47"},
+{"notification_id":"103","user_id":"4","message":"إعلان جديد من الإدارة: يل","link":"student\/announcements.php","is_read":"0","created_at":"2025-09-19 23:26:47"},
+{"notification_id":"104","user_id":"5","message":"إعلان جديد من الإدارة: يل","link":"student\/announcements.php","is_read":"0","created_at":"2025-09-19 23:26:47"},
+{"notification_id":"105","user_id":"6","message":"إعلان جديد من الإدارة: يل","link":"student\/announcements.php","is_read":"0","created_at":"2025-09-19 23:26:47"}
+]
+}
+,{"type":"table","name":"offering_subjects","database":"mo7adaraty_db","data":
+[
+{"offering_subject_id":"2","offering_id":"2","subject_id":"1","professor_id":"1"},
+{"offering_subject_id":"3","offering_id":"2","subject_id":"2","professor_id":"1"},
+{"offering_subject_id":"4","offering_id":"2","subject_id":"3","professor_id":"1"},
+{"offering_subject_id":"5","offering_id":"4","subject_id":"4","professor_id":"1"},
+{"offering_subject_id":"6","offering_id":"4","subject_id":"2","professor_id":null},
+{"offering_subject_id":"7","offering_id":"4","subject_id":"1","professor_id":"1"},
+{"offering_subject_id":"8","offering_id":"2","subject_id":"5","professor_id":null},
+{"offering_subject_id":"9","offering_id":"6","subject_id":"4","professor_id":"1"}
+]
+}
+,{"type":"table","name":"password_reset_requests","database":"mo7adaraty_db","data":
+[
+{"request_id":"1","user_id":"1","username":"admin","contact_info":"admin@mo7adaraty.com","status":"completed","request_date":"2025-08-23 16:08:25"}
+]
+}
+,{"type":"table","name":"posts","database":"mo7adaraty_db","data":
+[
+{"post_id":"1","user_id":"1","post_text":"شصق","image_path":null,"background_style":null,"status":"approved","created_at":"2025-08-23 12:20:37"},
+{"post_id":"2","user_id":"1","post_text":"ثفغهتفغ","image_path":null,"background_style":null,"status":"approved","created_at":"2025-08-23 12:21:24"},
+{"post_id":"3","user_id":"1","post_text":"","image_path":"uploads\/posts\/post_68a997ac77aa08.53675439.png","background_style":null,"status":"approved","created_at":"2025-08-23 12:27:56"},
+{"post_id":"4","user_id":"2","post_text":"ارم","image_path":null,"background_style":null,"status":"approved","created_at":"2025-08-23 14:25:02"},
+{"post_id":"5","user_id":"2","post_text":"غعهغ","image_path":null,"background_style":null,"status":"approved","created_at":"2025-08-23 14:29:43"},
+{"post_id":"6","user_id":"1","post_text":"سفيغ","image_path":"uploads\/posts\/post_68a9c95d6b46c6.70110718.png","background_style":null,"status":"approved","created_at":"2025-08-23 15:59:57"},
+{"post_id":"8","user_id":"4","post_text":"قسففتن","image_path":null,"background_style":null,"status":"approved","created_at":"2025-08-23 20:03:27"},
+{"post_id":"9","user_id":"1","post_text":"ق-èه_","image_path":null,"background_style":null,"status":"approved","created_at":"2025-08-23 22:31:23"},
+{"post_id":"10","user_id":"2","post_text":"-dyiuy","image_path":null,"background_style":"red","status":"approved","created_at":"2025-08-25 12:24:39"},
+{"post_id":"11","user_id":"1","post_text":"فيغع","image_path":null,"background_style":"green","status":"approved","created_at":"2025-08-25 12:27:36"},
+{"post_id":"12","user_id":"1","post_text":"أداة Kapwing لإنشاء روابط الفيديو مجانية ومتاحة تمامًا في متصفحك من هاتفك أو حاسوبك أو جهازك اللوحي حتى تتمكن من نسخ ولصق رابط الفيديو وإرساله لأي شخص. يمكنك ...","image_path":null,"background_style":"red","status":"approved","created_at":"2025-08-25 12:33:27"},
+{"post_id":"13","user_id":"1","post_text":null,"image_path":"uploads\/posts\/post_68ac3c643271d.png","background_style":"none","status":"approved","created_at":"2025-08-25 12:35:16"},
+{"post_id":"14","user_id":"1","post_text":"سهولة الاستخدام: يمكنك رفع الفيديو بسرعة والحصول على رابط مباشر.\r\n\r\nإنشاء روابط قصيرة تلقائيًا: يوفر الموقع روابط قصيرة للفيديوهات المرفوعة، مما يسهل استخدامها.","image_path":null,"background_style":"red","status":"approved","created_at":"2025-08-25 12:36:07"}
+]
+}
+,{"type":"table","name":"professors","database":"mo7adaraty_db","data":
+[
+{"professor_id":"1","professor_name":"محمد"},
+{"professor_id":"2","professor_name":"محمد2"},
+{"professor_id":"3","professor_name":"ثشسب"},
+{"professor_id":"4","professor_name":"صثق"}
+]
+}
+,{"type":"table","name":"reports","database":"mo7adaraty_db","data":
+[
+{"report_id":"1","reporter_user_id":"2","content_type":"lecture","content_id":"4","reason":"فغهم","status":"dismissed","created_at":"2025-08-22 21:29:53"},
+{"report_id":"2","reporter_user_id":"1","content_type":"lecture","content_id":"4","reason":"لبعنم","status":"resolved","created_at":"2025-08-22 21:30:34"},
+{"report_id":"4","reporter_user_id":"2","content_type":"post","content_id":"3","reason":"خعلنغ","status":"resolved","created_at":"2025-08-23 15:45:08"},
+{"report_id":"5","reporter_user_id":"1","content_type":"post","content_id":"2","reason":"قبفغ","status":"pending","created_at":"2025-08-23 15:47:21"},
+{"report_id":"6","reporter_user_id":"1","content_type":"post","content_id":"3","reason":"بغèفç","status":"pending","created_at":"2025-08-23 15:52:05"},
+{"report_id":"7","reporter_user_id":"1","content_type":"post","content_id":"1","reason":"_خ","status":"pending","created_at":"2025-08-23 15:57:16"}
+]
+}
+,{"type":"table","name":"student_enrollments","database":"mo7adaraty_db","data":
+[
+{"enrollment_id":"2","user_id":"1","offering_id":"2"},
+{"enrollment_id":"5","user_id":"3","offering_id":"3"},
+{"enrollment_id":"6","user_id":"2","offering_id":"4"},
+{"enrollment_id":"7","user_id":"4","offering_id":"2"},
+{"enrollment_id":"8","user_id":"4","offering_id":"4"},
+{"enrollment_id":"9","user_id":"5","offering_id":"2"},
+{"enrollment_id":"10","user_id":"1","offering_id":"4"},
+{"enrollment_id":"11","user_id":"2","offering_id":"6"},
+{"enrollment_id":"12","user_id":"6","offering_id":"3"},
+{"enrollment_id":"13","user_id":"6","offering_id":"5"}
+]
+}
+,{"type":"table","name":"subjects","database":"mo7adaraty_db","data":
+[
+{"subject_id":"1","subject_name":"m1"},
+{"subject_id":"2","subject_name":"m2"},
+{"subject_id":"3","subject_name":"قف"},
+{"subject_id":"4","subject_name":"m1"},
+{"subject_id":"5","subject_name":"m6"}
+]
+}
+,{"type":"table","name":"tracks","database":"mo7adaraty_db","data":
+[
+{"track_id":"1","track_name":"حديث","division_id":"1"},
+{"track_id":"2","track_name":"الفقه","division_id":"1"}
+]
+}
+,{"type":"table","name":"users","database":"mo7adaraty_db","data":
+[
+{"user_id":"1","username":"admin","email":"admin@example.com","password_hash":"$2y$10$9GQhIrKntunliJ0Y.gb8Ges62xZNzIjYhVUVKLenPmU2rqO\/agsxe","profile_picture":"user_68a9ca3becada.png","role":"admin","created_at":"2025-08-20 15:11:12"},
+{"user_id":"2","username":"admin538","email":"sff@mail.com","password_hash":"$2y$10$5\/nkBiBfIca5cuso.7zxSexcvtX7xjSvfSTjNpvDYD13orDVjdfAC","profile_picture":"default.png","role":"student","created_at":"2025-08-22 00:50:29"},
+{"user_id":"3","username":"admin245","email":"irizimomed51@gmail.com","password_hash":"$2y$10$a2BG0RR\/Gxz2pHntAdo3puYCRNWtlF36tvVkOPU0vU96oUEDFqW0O","profile_picture":"default.png","role":"student","created_at":"2025-08-22 01:41:06"},
+{"user_id":"4","username":"1111","email":"itsiimohamed@gmail.com","password_hash":"$2y$10$iqhaEYcJV1wnSPwdUI3zZuHXloUkR0jUGbli.C.4.4kaUvltOef46","profile_picture":"default.png","role":"student","created_at":"2025-08-23 17:09:33"},
+{"user_id":"5","username":"1","email":"mpghk@gmail.com","password_hash":"$2y$10$EqoYO\/Txj6WGw6piPl0KnOSn7EpsdF4n7Wu\/xnDstLZxjwB5l1fKm","profile_picture":"user_68aa083099d205.99244935.png","role":"student","created_at":"2025-08-23 20:28:00"},
+{"user_id":"6","username":"adminبقق","email":"itohamed@gmail.com","password_hash":"$2y$10$A5ph\/0s\/ZbWqtyB41gvzKePNS0a4t5lhGyZwLAbeAuHCPD\/WfAkJS","profile_picture":"default.png","role":"student","created_at":"2025-08-23 22:19:42"}
+]
+}
+,{"type":"table","name":"whatsapp_groups","database":"mo7adaraty_db","data":
+[
+{"link_id":"1","offering_id":"2","group_link":"https:\/\/api.whatsapp.com\/send?phone=971563323777&text=%D9%85%D8%B1%D8%AD%D8%A8%D8%A7%D9%8B+%D8%A7%D8%B1%D9%8A%D8%AF+%D8%A7%D9%84%D9%85%D8%B3%D8%A7%D8%B9%D8%AF%D8%A9+%D9%81%D9%8A+%D9%85%D9%88%D9%82%D8%B9+%D9%85%D8%AD%D8%A7%D8%B6%D8%B1%D8%A7%D8%AA","group_name":"سسسسسسسسسس","added_by_user_id":"1","created_at":"2025-08-23 22:17:27"}
+]
+}
+]

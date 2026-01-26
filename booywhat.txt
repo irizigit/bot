@@ -1,0 +1,2691 @@
+// bot.js - الإصدار المحسّن والجاهز للنشر
+
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+const path = require('path');
+
+// --- استيراد الوحدات الأساسية ---
+const config = require('./config');
+const state = require('./state');
+const db = require('./database');
+const { handleStatefulMessage } = require('./state-handler');
+const eventHandlers = require('./event-handler');
+
+// --- استيراد جميع ملفات الأوامر ---
+// تأكد من أن كل هذه الملفات موجودة في مجلد commands
+const adminCommands = require('./commands/admin-commands');
+const setupCommands = require('./commands/setup-handler');
+const addLectureCommands = require('./commands/add-lecture-commands');
+const downloadCommands = require('./commands/download-commands');
+const aiCommands = require('./commands/ai-commands');
+const pollCommands = require('./commands/poll-commands');
+const pdfCommands = require('./commands/pdf-commands');
+
+// --- دمج جميع الأوامر في خريطة واحدة لتسهيل الوصول إليها ---
+const commands = {
+    ...adminCommands,
+    ...setupCommands,
+    ...addLectureCommands,
+    ...downloadCommands,
+    ...aiCommands,
+    ...pollCommands,
+    ...pdfCommands,
+};
+
+console.log('[🚀] Initializing WhatsApp client...');
+const client = new Client({
+    authStrategy: new LocalAuth({
+        clientId: "whatsapp-bot",
+        dataPath: path.join(__dirname, '.wwebjs_auth')
+    }),
+    puppeteer: {
+        headless: "new",
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+        ],
+    },
+    qrTimeout: 120000,
+    authTimeout: 120000,
+});
+
+// --- معالجة أحداث العميل ---
+
+client.on('qr', qr => {
+    console.log('[📸] Scan the QR code below:');
+    qrcode.generate(qr, { small: true });
+});
+
+client.on('authenticated', () => {
+    console.log('[✅] Authenticated successfully!');
+});
+
+client.on('ready', async () => {
+    state.isBotReady = true;
+    console.log('[✅] Client is ready!');
+
+    try {
+        const chats = await client.getChats();
+        chats.forEach(chat => {
+            if (chat.isGroup) {
+                state.groupsMetadata.set(chat.id._serialized, chat.name);
+            }
+        });
+        console.log(`[ℹ️] Loaded metadata for ${state.groupsMetadata.size} groups.`);
+
+        if (config.OWNER_ID) {
+            await client.sendMessage(config.OWNER_ID, `✅ *البوت يعمل الآن وجاهز لاستقبال الأوامر*${config.SIGNATURE}`);
+        }
+    } catch (error) {
+        console.error('[❌] Error in ready event:', error);
+    }
+});
+
+client.on('auth_failure', msg => {
+    console.error('[❌] Authentication failure:', msg);
+    state.isBotReady = false;
+    process.exit(1);
+});
+
+client.on('disconnected', reason => {
+    console.log('[❌] Client was logged out:', reason);
+    state.isBotReady = false;
+});
+
+// --- معالجة أحداث المجموعات ---
+client.on('group_join', (notification) => {
+    try {
+        eventHandlers.handleGroupJoin(notification, client);
+    } catch (error) {
+        console.error('[❌] Error in group_join event:', error);
+    }
+});
+
+client.on('group_leave', (notification) => {
+    try {
+        eventHandlers.handleGroupLeave(notification, client);
+    } catch (error) {
+        console.error('[❌] Error in group_leave event:', error);
+    }
+});
+
+// ---------------------------------------------------
+//          الموجه الرئيسي للرسائل
+// ---------------------------------------------------
+client.on('message_create', async message => {
+    if (message.fromMe || !state.isBotReady || !message.body || message.from === 'status@broadcast') {
+        return;
+    }
+
+    try {
+        const wasHandledByState = await handleStatefulMessage(message, client);
+        if (wasHandledByState) {
+            return;
+        }
+
+        const command = message.body.split(' ')[0].toLowerCase();
+        const commandHandler = commands[command];
+
+        if (commandHandler) {
+            console.log(`[CMD] Executing command "${command}" for ${message.from}`);
+            await commandHandler(message, client);
+        }
+    } catch (error) {
+        console.error('[❌] An error occurred in message_create handler:', error);
+        try {
+            await message.reply(`⚠️ حدث خطأ غير متوقع: ${error.message}${config.SIGNATURE}`);
+        } catch (replyError) {
+            console.error('[❌] Error sending error message:', replyError);
+        }
+    }
+});
+
+/**
+ * @description دالة رئيسية لبدء تشغيل البوت.
+ */
+async function start() {
+    console.log('[🔄] Initializing database...');
+    try {
+        console.log('[✅] Database connection pool established.');
+    } catch (error) {
+        console.error('[❌] Error initializing database:', error);
+        process.exit(1);
+    }
+
+    console.log('[📂] Loading initial data from database...');
+    try {
+        const devData = await db.loadAllData();
+        state.admins = new Set((devData.developers || []).map(dev => dev.userid)); //
+        
+        console.log('--- ADMINS LOADED ---');
+        console.log(state.admins);
+        console.log('---------------------');
+
+        const coursesData = await db.loadCoursesData();
+        state.sections = coursesData.sections;
+        state.classes = coursesData.classes;
+        state.subjects = coursesData.subjects;
+        state.groupsData = coursesData.groups;
+        state.professors = coursesData.professors;
+        console.log(`[📊] Loaded ${state.sections.size} sections, ${state.classes.size} classes, and other course data.`);
+
+    } catch (error) {
+        console.error('[❌] CRITICAL: Could not load initial data from database. The bot will not function correctly.', error);
+        process.exit(1);
+    }
+
+    console.log('[▶️] Starting client initialization...');
+    await client.initialize();
+}
+
+// --- معالجة الأخطاء العامة ---
+process.on('uncaughtException', (error) => {
+    console.error('[❌] Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[❌] Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// --- بدء تشغيل البوت ---
+start();
+
+
+// utils.js - ملف الأدوات المساعدة
+
+const state = require('./state');
+const { OWNER_ID } = require('./config');
+
+/**
+ * @description يتحقق مما إذا كان المستخدم مشرفًا في مجموعة معينة.
+ * يأخذ في الاعتبار أن المطورين (admins) هم مشرفون في كل المجموعات.
+ * @param {Client} client - عميل واتساب.
+ * @param {string} userId - معرف المستخدم.
+ * @param {string} groupId - معرف المجموعة.
+ * @returns {Promise<boolean>}
+ */
+async function isAdmin(client, userId, groupId) {
+    // المطورون (المشرفون العامون) لهم صلاحيات في كل مكان
+    if (state.admins.has(userId)) {
+        return true;
+    }
+
+    try {
+        const chat = await client.getChatById(groupId);
+        if (!chat.isGroup) return false;
+
+        // البحث عن المستخدم في قائمة المشاركين وتحديد ما إذا كان مشرفاً
+        const participant = chat.participants.find(p => p.id._serialized === userId);
+        return participant ? participant.isAdmin || participant.isSuperAdmin : false;
+
+    } catch (error) {
+        console.error(`[❌] Error in isAdmin check for group ${groupId}:`, error);
+        return false;
+    }
+}
+
+/**
+ * @description يتحقق مما إذا كان المستخدم هو مالك البوت.
+ * @param {string} userId - معرف المستخدم.
+ * @returns {boolean}
+ */
+function isOwner(userId) {
+    return userId === OWNER_ID;
+}
+
+/**
+ * @description يطبع الأخطاء في الكونسول بطريقة منظمة.
+ * @param {Error} error - كائن الخطأ.
+ * @param {string} context - وصف للمكان الذي حدث فيه الخطأ.
+ */
+function logError(error, context = 'General') {
+    console.error(`[❌] Error in ${context}:`, error.message);
+    if (error.stack) {
+        console.error(error.stack);
+    }
+}
+
+module.exports = {
+    isAdmin,
+    isOwner,
+    logError,
+};
+// state.js
+
+/**
+ * @description إدارة حالة البوت والبيانات المحملة.
+ * يعمل هذا الملف كذاكرة مركزية للبوت (In-Memory State).
+ */
+
+module.exports = {
+    // --- حالة البوت ---
+    isBotReady: false,
+    startTime: Date.now(), // لتتبع وقت التشغيل
+
+    // --- حالات المستخدمين المؤقتة للمحادثات التفاعلية ---
+    // key: userId, value: { step, timestamp, ...data }
+    userState: new Map(),
+
+    // --- بيانات يتم تحميلها من قاعدة البيانات عند بدء التشغيل ---
+    sections: new Map(),   // الشعب
+    classes: new Map(),    // الفصول
+    subjects: new Map(),   // المواد
+    groupsData: new Map(), // الأفواج
+    professors: new Map(), // الأساتذة
+
+    // --- بيانات إضافية ---
+    groupsMetadata: new Map(), // لتخزين أسماء المجموعات
+    blacklist: new Set(),      // الأرقام المحظورة (يمكن تطويرها لاحقاً)
+    
+    // --- قائمة المطورين (المشرفين العامين) ---
+    // يتم تحميلها من قاعدة البيانات
+    admins: new Set(),
+};
+// state-handler.js - الإصدار المصحح
+
+const state = require('./state');
+const { SIGNATURE, USER_STATE_TIMEOUT } = require('../config');
+const db = require('../database');
+
+// --- استيراد دوال معالجة الأوامر من ملفاتها الخاصة ---
+const setupHandlers = require('./commands/setup-handler'); // <-- **التصحيح هنا**
+const addLectureHandlers = require('./commands/add-lecture-commands');
+const downloadHandlers = require('./commands/download-commands');
+
+/**
+ * @description الموجه الرئيسي للحالات (State Router).
+ */
+const allSteps = {
+    // --- خطوات عملية الإعداد الكاملة (!إعداد) ---
+    'setup_select_action': setupHandlers.handleSetupSelectAction,
+    'setup_get_section_name': setupHandlers.handleSetupGetSectionName,
+    'setup_get_class_name': setupHandlers.handleSetupGetClassName,
+    'setup_get_subjects_for_class': setupHandlers.handleSetupGetSubjects,
+    'setup_get_groups_and_profs': setupHandlers.handleSetupGetGroupsAndProfs,
+    'setup_ask_for_another_class': setupHandlers.handleAskForAnotherClass,
+    'setup_confirm_and_save': setupHandlers.handleSetupConfirmAndSave,
+
+    // --- خطوات عملية إضافة محاضرة (!اضافة_محاضرة) ---
+    'add_lecture_select_section': addLectureHandlers.handleSelectSection,
+    'add_lecture_select_class': addLectureHandlers.handleSelectClass,
+    'add_lecture_select_subject': addLectureHandlers.handleSelectSubject,
+    'add_lecture_upload_file': addLectureHandlers.handleUploadFile,
+
+    // --- خطوات عملية عرض وتحميل المحاضرات (!عرض_المحاضرات) ---
+    'view_lectures_select_section': downloadHandlers.handleViewLecturesSelectSection,
+    'view_lectures_select_class': downloadHandlers.handleViewLecturesSelectClass,
+    'view_lectures_request_lecture': downloadHandlers.handleRequestLecture,
+};
+
+/**
+ * @description المعالج الرئيسي للرسائل التي تكون جزءاً من محادثة نشطة.
+ */
+async function handleStatefulMessage(message, client) {
+    const authorId = message.author || message.from;
+
+    if (!state.userState.has(authorId)) {
+        return false;
+    }
+
+    const userState = state.userState.get(authorId);
+    const content = message.body.trim();
+
+    if (Date.now() - userState.timestamp > USER_STATE_TIMEOUT) {
+        state.userState.delete(authorId);
+        await message.reply(`⏱️ انتهت صلاحية الجلسة. يرجى البدء من جديد.${SIGNATURE}`);
+        return true;
+    }
+
+    if (content.toLowerCase() === 'إلغاء' || content.toLowerCase() === 'cancel') {
+        state.userState.delete(authorId);
+        await message.reply(`✅ تم إلغاء العملية.${SIGNATURE}`);
+        return true;
+    }
+
+    const handler = allSteps[userState.step];
+    if (handler) {
+        try {
+            userState.timestamp = Date.now();
+            await handler(message, client);
+        } catch (error) {
+            console.error(`[❌] Error in state handler for step "${userState.step}":`, error);
+            await message.reply(`⚠️ حدث خطأ غير متوقع. تم إنهاء العملية.${SIGNATURE}`);
+            state.userState.delete(authorId);
+        }
+    } else {
+        console.warn(`[⚠️] No state handler found for step: ${userState.step}.`);
+        await message.reply(`⚠️ خطأ في النظام. تم إنهاء العملية.`);
+        state.userState.delete(authorId);
+    }
+
+    return true;
+}
+
+module.exports = { handleStatefulMessage };
+// event-handler.js
+
+const state = require('./state');
+const { SIGNATURE } = require('./config');
+const { logError } = require('./utils');
+
+/**
+ * @description يعالج حدث انضمام عضو جديد إلى المجموعة.
+ * @param {GroupNotification} notification - إشعار الانضمام.
+ * @param {Client} client - عميل واتساب.
+ */
+async function handleGroupJoin(notification, client) {
+    try {
+        const groupId = notification.chatId;
+        // الحصول على اسم العضو الجديد
+        const contact = await client.getContactById(notification.recipientIds[0]);
+        const userName = contact.pushname || contact.name || "العضو الجديد";
+        const groupName = state.groupsMetadata.get(groupId) || "المجموعة";
+
+        // رسالة ترحيب ذكية
+        const welcomeMessage = `
+👋 أهلاً بك يا ${userName} في مجموعة *${groupName}*!
+
+نتمنى لك وقتاً ممتعاً ومفيداً معنا. ✨
+
+${SIGNATURE}
+        `;
+        
+        await client.sendMessage(groupId, welcomeMessage);
+        console.log(`[+] Welcomed new member ${userName} to group ${groupName}.`);
+
+    } catch (error) {
+        logError(error, 'handleGroupJoin');
+    }
+}
+
+/**
+ * @description يعالج حدث مغادرة عضو للمجموعة.
+ * @param {GroupNotification} notification - إشعار المغادرة.
+ * @param {Client} client - عميل واتساب.
+ */
+async function handleGroupLeave(notification, client) {
+    try {
+        const groupId = notification.chatId;
+        const contact = await client.getContactById(notification.recipientIds[0]);
+        const userName = contact.pushname || contact.name;
+
+        console.log(`[-] Member ${userName} left group ${state.groupsMetadata.get(groupId)}.`);
+        
+        // يمكن إضافة منطق هنا لإرسال رسالة وداع للمشرفين أو تسجيل الحدث
+        // await client.sendMessage(config.OWNER_ID, ` FYI: ${userName} left ${state.groupsMetadata.get(groupId)}.`);
+
+    } catch (error) {
+        logError(error, 'handleGroupLeave');
+    }
+}
+
+module.exports = {
+    handleGroupJoin,
+    handleGroupLeave,
+};
+// database.js - الإصدار النهائي والمصحح لـ Supabase
+
+const { Pool } = require('pg');
+const { DATABASE_URL } = require('./config');
+
+if (!DATABASE_URL) {
+    throw new Error('[❌] FATAL: DATABASE_URL is not defined in environment variables. Please check your .env file or Render configuration.');
+}
+
+const pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
+
+console.log('[✅] Database connection pool for PostgreSQL (Supabase) created.');
+
+/**
+ * @description يحمل بيانات المطورين فقط عند بدء التشغيل.
+ */
+async function loadAllData() {
+    const client = await pool.connect();
+    console.log('[DB] Attempting to load developers data...');
+    try {
+        const devResult = await client.query("SELECT userId FROM developers");
+        console.log(`[DB] Success! Found ${devResult.rows.length} developer(s) in the database.`);
+        // Supabase ترجع أسماء الحقول بحروف صغيرة (userid)
+        return { developers: devResult.rows.map(row => ({ userId: row.userid })) };
+    } catch (error) {
+        console.error('[❌] FATAL: Failed to execute query to load developers.', error);
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * @description يحمل كل بيانات المقررات (الشعب، الفصول، إلخ) من قاعدة البيانات.
+ */
+async function loadCoursesData() {
+    const client = await pool.connect();
+    console.log('[DB] Attempting to load course data...');
+    try {
+        const sectionsResult = await client.query("SELECT * FROM sections");
+        const classesResult = await client.query("SELECT * FROM classes");
+        const subjectsResult = await client.query("SELECT * FROM subjects");
+        const groupsResult = await client.query("SELECT * FROM course_groups");
+        const professorsResult = await client.query("SELECT * FROM professors");
+
+        const sections = new Map(sectionsResult.rows.map(row => [row.id, row]));
+        const classes = new Map(classesResult.rows.map(row => [row.id, row]));
+        const subjects = new Map(subjectsResult.rows.map(row => [row.id, row]));
+        const groups = new Map(groupsResult.rows.map(row => [row.id, row]));
+        const professors = new Map(professorsResult.rows.map(row => [row.id, row]));
+        
+        console.log(`[DB] Success! Loaded ${sections.size} sections, ${classes.size} classes, etc.`);
+        return { sections, classes, subjects, groupsData: groups, professors };
+    } catch (error) {
+        console.error('[❌] Error loading courses data:', error);
+        return { sections: new Map(), classes: new Map(), subjects: new Map(), groupsData: new Map(), professors: new Map() };
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * @description يضيف مطورًا جديدًا.
+ */
+function addDeveloper(userId) {
+    const query = "INSERT INTO developers (userId) VALUES ($1) ON CONFLICT (userId) DO NOTHING";
+    return pool.query(query, [userId]).then(res => res.rowCount);
+}
+
+/**
+ * @description يحفظ إعدادات شعبة كاملة في عملية واحدة (Transaction).
+ * @param {object} setupData - البيانات التي تم جمعها من المستخدم.
+ */
+async function saveSectionSetup(setupData) {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN'); // بدء عملية Transaction
+
+        // 1. إضافة الشعبة
+        const sectionRes = await client.query('INSERT INTO sections (name) VALUES ($1) RETURNING id', [setupData.sectionName]);
+        const sectionId = sectionRes.rows[0].id;
+
+        // 2. تكرار لكل فصل
+        for (const classData of setupData.classes) {
+            if (!classData) continue;
+
+            const classRes = await client.query('INSERT INTO classes (name, section_id) VALUES ($1, $2) RETURNING id', [classData.className, sectionId]);
+            const classId = classRes.rows[0].id;
+
+            // 3. تكرار لكل مادة
+            for (const subjectName of classData.subjects) {
+                await client.query('INSERT INTO subjects (name, class_id) VALUES ($1, $2)', [subjectName, classId]);
+            }
+
+            // 4. تكرار لكل فوج وأستاذ
+            for (const groupData of classData.groups) {
+                // إضافة الأستاذ (مع تجاهل التكرار)
+                const profRes = await client.query('INSERT INTO professors (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING id', [groupData.professorName]);
+                const professorId = profRes.rows[0].id;
+
+                // إضافة الفوج
+                const groupRes = await client.query('INSERT INTO course_groups (name, class_id) VALUES ($1, $2) RETURNING id', [groupData.groupName, classId]);
+            }
+        }
+
+        await client.query('COMMIT'); // تأكيد العملية إذا نجحت
+        console.log(`[DB] Successfully saved new section: ${setupData.sectionName}`);
+    } catch (error) {
+        await client.query('ROLLBACK'); // التراجع في حالة حدوث أي خطأ
+        console.error('[❌] Error in saveSectionSetup transaction:', error);
+        throw new Error('فشل حفظ البيانات في قاعدة البيانات.');
+    } finally {
+        client.release(); // تحرير الاتصال
+    }
+}
+
+module.exports = {
+    pool,
+    query: (text, params) => pool.query(text, params),
+    loadAllData,
+    loadCoursesData,
+    addDeveloper,
+    saveSectionSetup, // تأكد من تصدير هذه الدالة
+};
+// config.js - الإصدار النهائي الجاهز للنشر
+
+// استيراد dotenv لتحميل متغيرات البيئة من ملف .env أثناء التطوير المحلي
+require('dotenv').config();
+
+module.exports = {
+    // --- إعدادات البوت الأساسية ---
+    SIGNATURE: process.env.SIGNATURE || '\n\n🤖 بواسطة بوت المطور',
+
+    // --- معرف المالك (يجب إضافته في متغيرات البيئة على Render) ---
+    // مثال: 2126xxxxxxxx@c.us
+    OWNER_ID: process.env.OWNER_ID,
+
+    // --- إعدادات قاعدة البيانات (Supabase) ---
+    // هذا هو رابط الاتصال الذي نسخته من إعدادات قاعدة البيانات في Supabase
+    DATABASE_URL: process.env.DATABASE_URL,
+
+    // --- إعدادات تخزين الملفات (GitHub) ---
+    // التوكن الذي قمت بإنشائه من إعدادات حسابك في GitHub
+    GITHUB_TOKEN: process.env.GITHUB_TOKEN,
+    // اسم مستخدمك على GitHub
+    GITHUB_OWNER: process.env.GITHUB_OWNER,
+    // اسم المستودع (Repository) الذي ستخزن فيه المحاضرات
+    GITHUB_REPO: process.env.GITHUB_REPO,
+
+    // --- إعدادات المهلة لجلسات المستخدمين ---
+    // المهلة بالمللي ثانية (هنا 10 دقائق)
+    USER_STATE_TIMEOUT: 10 * 60 * 1000,
+
+    // --- إعدادات الذكاء الاصطناعي (اختياري) ---
+    AI_API_KEY: process.env.AI_API_KEY,
+
+    // --- إعدادات التصحيح والأخطاء ---
+    // اضبطها على 'true' في Render لإظهار تفاصيل الأخطاء أثناء التطوير
+    DEBUG_MODE: process.env.DEBUG_MODE === 'true' || false,
+};
+// commands/add-lecture-commands.js - الإصدار الكامل والمصحح
+
+const { isAdmin } = require('../utils');
+const { SIGNATURE, GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = require('../config');
+const state = require('../state');
+const db = require('../database');
+const { Octokit } = require("@octokit/rest");
+
+// --- إعدادات الاتصال بـ GitHub ---
+if (!GITHUB_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
+    console.warn('[⚠️] GitHub configuration is missing. File uploads will fail.');
+}
+const octokit = new Octokit({ auth: GITHUB_TOKEN });
+
+/**
+ * @description يبدأ عملية إضافة محاضرة جديدة.
+ */
+async function handleAddLectureCommand(message, client) {
+    const chat = await message.getChat();
+    const authorId = message.author || message.from;
+
+    if (!(await isAdmin(client, authorId, chat.id._serialized))) {
+        return message.reply(`⚠️ هذا الأمر متاح للمشرفين فقط!${SIGNATURE}`);
+    }
+
+    if (state.sections.size === 0) {
+        return message.reply(`⚠️ لا توجد شعب مضافة بعد. يرجى استخدام !إعداد أولاً.${SIGNATURE}`);
+    }
+
+    let list = '📚 *إضافة محاضرة جديدة*\n\nيرجى اختيار الشعبة:\n\n';
+    Array.from(state.sections.values()).forEach((section, i) => {
+        list += `${i + 1}. ${section.name}\n`;
+    });
+    list += `\n💡 أرسل رقم الخيار أو *إلغاء*.`;
+
+    await message.reply(list);
+    state.userState.set(authorId, {
+        step: 'add_lecture_select_section',
+        timestamp: Date.now(),
+        lectureData: {} // كائن لتخزين بيانات المحاضرة خطوة بخطوة
+    });
+}
+
+// --- دوال الخطوات (سيتم استدعاؤها من state-handler.js) ---
+
+async function handleSelectSection(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const choice = parseInt(message.body.trim());
+    const sectionsArray = Array.from(state.sections.values());
+
+    if (isNaN(choice) || choice < 1 || choice > sectionsArray.length) {
+        return message.reply('⚠️ رقم غير صالح. يرجى اختيار رقم من القائمة.');
+    }
+
+    const selectedSection = sectionsArray[choice - 1];
+    userState.lectureData.sectionId = selectedSection.id;
+    userState.lectureData.sectionName = selectedSection.name;
+
+    const classesInSection = Array.from(state.classes.values()).filter(c => c.section_id === selectedSection.id);
+    if (classesInSection.length === 0) {
+        state.userState.delete(authorId);
+        return message.reply(`⚠️ لا توجد فصول مضافة لهذه الشعبة.${SIGNATURE}`);
+    }
+
+    let list = '🏫 *اختر الفصل:*\n\n';
+    classesInSection.forEach((cls, i) => list += `${i + 1}. ${cls.name}\n`);
+    await message.reply(list);
+
+    userState.step = 'add_lecture_select_class';
+    userState.tempData = classesInSection; // تخزين مؤقت للخطوة التالية
+}
+
+async function handleSelectClass(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const choice = parseInt(message.body.trim());
+    const classesArray = userState.tempData;
+
+    if (isNaN(choice) || choice < 1 || choice > classesArray.length) {
+        return message.reply('⚠️ رقم غير صالح. يرجى اختيار رقم من القائمة.');
+    }
+
+    const selectedClass = classesArray[choice - 1];
+    userState.lectureData.classId = selectedClass.id;
+    userState.lectureData.className = selectedClass.name;
+
+    const subjectsInClass = Array.from(state.subjects.values()).filter(s => s.class_id === selectedClass.id);
+     if (subjectsInClass.length === 0) {
+        state.userState.delete(authorId);
+        return message.reply(`⚠️ لا توجد مواد مضافة لهذا الفصل.${SIGNATURE}`);
+    }
+    
+    let list = '📖 *اختر المادة:*\n\n';
+    subjectsInClass.forEach((sub, i) => list += `${i + 1}. ${sub.name}\n`);
+    await message.reply(list);
+
+    userState.step = 'add_lecture_select_subject';
+    userState.tempData = subjectsInClass;
+}
+
+async function handleSelectSubject(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const choice = parseInt(message.body.trim());
+    const subjectsArray = userState.tempData;
+
+    if (isNaN(choice) || choice < 1 || choice > subjectsArray.length) {
+        return message.reply('⚠️ رقم غير صالح. يرجى اختيار رقم من القائمة.');
+    }
+
+    const selectedSubject = subjectsArray[choice - 1];
+    userState.lectureData.subjectId = selectedSubject.id;
+    userState.lectureData.subjectName = selectedSubject.name;
+    
+    // اطلب من المستخدم إرسال الملف الآن
+    await message.reply(`✅ تم اختيار المادة: *${selectedSubject.name}*.\n\nالآن، يرجى إرسال ملف المحاضرة (PDF).`);
+    userState.step = 'add_lecture_upload_file';
+}
+
+async function handleUploadFile(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+
+    if (!message.hasMedia || message.type !== 'document') {
+        return message.reply(`⚠️ يرجى إرسال ملف بصيغة PDF.`);
+    }
+    
+    const media = await message.downloadMedia();
+    if (!media || !media.mimetype.includes('pdf')) {
+        return message.reply(`⚠️ فشل تحميل الملف أو أن الملف ليس بصيغة PDF. يرجى المحاولة مرة أخرى.`);
+    }
+
+    await message.react('🔄');
+
+    const fileName = `lectures/${userState.lectureData.sectionName}/${userState.lectureData.className}/${userState.lectureData.subjectName}-${Date.now()}.pdf`;
+
+    try {
+        await octokit.repos.createOrUpdateFileContents({
+            owner: GITHUB_OWNER,
+            repo: GITHUB_REPO,
+            path: fileName,
+            message: `BOT: Add lecture - ${fileName}`,
+            content: media.data,
+        });
+
+        // استخدام @main بدلاً من @latest لضمان الحصول على أحدث نسخة فوراً
+        const downloadUrl = `https://cdn.jsdelivr.net/gh/${GITHUB_OWNER}/${GITHUB_REPO}@main/${fileName}`;
+        
+        // سنحتاج لإضافة هذه الدالة في database.js
+        // await db.saveLectureInDB({
+        //    fileName: fileName,
+        //    fileUrl: downloadUrl,
+        //    subjectId: userState.lectureData.subjectId,
+        //    uploaderId: authorId,
+        // });
+
+        await message.reply(`✅ تمت إضافة المحاضرة ورفعها إلى السحابة بنجاح!${SIGNATURE}`);
+
+    } catch (error) {
+        console.error('[❌] Error uploading to GitHub:', error);
+        await message.reply(`⚠️ حدث خطأ فادح أثناء الرفع. تأكد من صحة إعدادات GitHub.`);
+    } finally {
+        state.userState.delete(authorId);
+    }
+}
+
+module.exports = {
+    '!اضافة_محاضرة': handleAddLectureCommand,
+    '!add_lecture': handleAddLectureCommand,
+
+    // تصدير كل دوال الخطوات ليستخدمها state-handler
+    handleSelectSection,
+    handleSelectClass,
+    handleSelectSubject,
+    handleUploadFile,
+};
+// commands/admin-commands.js
+
+const { isOwner, logError } = require('../utils');
+const { SIGNATURE } = require('../config');
+const state = require('../state');
+const db = require('../database');
+
+/**
+ * @description يضيف مستخدمًا كمطور (مشرف عام).
+ * @param {Message} message - كائن الرسالة.
+ */
+async function handleAddDeveloper(message) {
+    if (!isOwner(message.author || message.from)) {
+        return message.reply(`⚠️ هذا الأمر متاح للمالك فقط!${SIGNATURE}`);
+    }
+
+    const mentionedUsers = await message.getMentions();
+    if (mentionedUsers.length === 0) {
+        return message.reply(`⚠️ يرجى الإشارة (mention) للمستخدم الذي تريد إضافته كمطور.${SIGNATURE}`);
+    }
+
+    for (const contact of mentionedUsers) {
+        const userId = contact.id._serialized;
+        const userName = contact.pushname || contact.name;
+        try {
+            const result = await db.addDeveloper(userId);
+            if (result > 0) {
+                state.admins.add(userId);
+                await message.reply(`✅ تمت إضافة "${userName}" إلى قائمة المطورين بنجاح!`);
+            } else {
+                await message.reply(`ℹ️ المستخدم "${userName}" هو مطور بالفعل.`);
+            }
+        } catch (error) {
+            logError(error, 'handleAddDeveloper');
+            await message.reply(`⚠️ حدث خطأ أثناء إضافة "${userName}".`);
+        }
+    }
+}
+
+/**
+ * @description يعرض إحصائيات تقنية عن البوت.
+ * @param {Message} message - كائن الرسالة.
+ */
+async function handleStats(message) {
+     if (!isOwner(message.author || message.from)) {
+        return message.reply(`⚠️ هذا الأمر متاح للمالك فقط!${SIGNATURE}`);
+    }
+
+    const uptime = (Date.now() - state.startTime) / 1000; // Uptime in seconds
+    const uptimeHours = Math.floor(uptime / 3600);
+    const uptimeMinutes = Math.floor((uptime % 3600) / 60);
+
+    const statsText = `
+📊 *إحصائيات البوت*
+
+⏱️ *وقت التشغيل:* ${uptimeHours} ساعة و ${uptimeMinutes} دقيقة
+🧠 *استخدام الذاكرة:* ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB
+👥 *عدد المطورين:* ${state.admins.size}
+📚 *عدد الشعب المحملة:* ${state.sections.size}
+🏫 *عدد الفصول المحملة:* ${state.classes.size}
+    `;
+    await message.reply(statsText + SIGNATURE);
+}
+
+/**
+ * @description يعيد تشغيل البوت.
+ * @param {Message} message - كائن الرسالة.
+ */
+async function handleRestart(message) {
+    if (!isOwner(message.author || message.from)) {
+        return message.reply(`⚠️ هذا الأمر متاح للمالك فقط!${SIGNATURE}`);
+    }
+    
+    await message.reply(`🔄 جاري إعادة تشغيل البوت الآن...`);
+    console.log('[🔄] Restarting bot by owner command...');
+    
+    // الطريقة الصحيحة لإعادة التشغيل على منصات مثل Render
+    // هي الخروج من العملية بنجاح، وستقوم المنصة بإعادة تشغيلها تلقائياً.
+    process.exit(0);
+}
+
+module.exports = {
+    '!اضافة_مطور': handleAddDeveloper,
+    '!add_dev': handleAddDeveloper,
+    '!احصائيات': handleStats,
+    '!stats': handleStats,
+    '!اعادة_تشغيل': handleRestart,
+    '!restart': handleRestart,
+};
+// commands/ai-commands.js
+
+const { AI_API_KEY, SIGNATURE } = require('../config');
+const { logError } = require('../utils');
+
+/**
+ * @description يرسل سؤالًا للذكاء الاصطناعي ويعيد الإجابة.
+ * @param {Message} message - كائن الرسالة.
+ * @param {Client} client - عميل واتساب.
+ */
+async function handleAICommand(message, client) {
+    const question = message.body.replace(/^!سؤال|^!question/i, '').trim();
+    
+    if (!question) {
+        await message.reply(`⚠️ يرجى كتابة سؤالك بعد الأمر. مثال: !سؤال ما هو الذكاء الاصطناعي؟${SIGNATURE}`);
+        return;
+    }
+    
+    if (!AI_API_KEY || AI_API_KEY === 'YOUR_AI_API_KEY') {
+        await message.reply(`⚠️ لم يتم إعداد مفتاح API للذكاء الاصطناعي. يرجى التواصل مع المالك.${SIGNATURE}`);
+        return;
+    }
+    
+    await message.react('🤖');
+    
+    try {
+        // هنا يمكنك إضافة استدعاء API للذكاء الاصطناعي
+        // هذا مجرد مثال، يجب استبداله بالاستدعاء الفعلي
+        
+        // مثال باستخدام OpenAI API
+        /*
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${AI_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-3.5-turbo',
+                messages: [{ role: 'user', content: question }],
+                max_tokens: 1000
+            })
+        });
+        
+        const data = await response.json();
+        const answer = data.choices[0].message.content;
+        */
+        
+        // للتجربة، نستخدم إجابة ثابتة
+        const answer = `أنا بوت واتساب ذكي، لكن ميزة الذكاء الاصطناعي لا تزال قيد التطوير. سؤالك: "${question}"`;
+        
+        await message.reply(`🤖 *الإجابة:*\n\n${answer}${SIGNATURE}`);
+    } catch (error) {
+        logError(error, 'AI command');
+        await message.reply(`⚠️ حدث خطأ أثناء معالجة سؤالك. يرجى المحاولة مرة أخرى لاحقًا.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description يترجم النص المرسل.
+ * @param {Message} message - كائن الرسالة.
+ * @param {Client} client - عميل واتساب.
+ */
+async function handleTranslateCommand(message, client) {
+    const text = message.body.replace(/^!ترجمة|^!translate/i, '').trim();
+    
+    if (!text) {
+        await message.reply(`⚠️ يرجى كتابة النص الذي تريد ترجمته. مثال: !ترجمة Hello world${SIGNATURE}`);
+        return;
+    }
+    
+    await message.react('🌐');
+    
+    try {
+        // هنا يمكنك إضافة استدعاء API للترجمة
+        // هذا مجرد مثال، يجب استبداله بالاستدعاء الفعلي
+        
+        // مثال باستخدام Google Translate API
+        /*
+        const response = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${GOOGLE_API_KEY}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                q: text,
+                target: 'ar'
+            })
+        });
+        
+        const data = await response.json();
+        const translation = data.data.translations[0].translatedText;
+        */
+        
+        // للتجربة، نستخدم ترجمة ثابتة
+        const translation = `الترجمة: "${text}" (ميزة الترجمة لا تزال قيد التطوير)`;
+        
+        await message.reply(`🌐 *الترجمة:*\n\n${translation}${SIGNATURE}`);
+    } catch (error) {
+        logError(error, 'translate command');
+        await message.reply(`⚠️ حدث خطأ أثناء الترجمة. يرجى المحاولة مرة أخرى لاحقًا.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description يلخص النص المرسل.
+ * @param {Message} message - كائن الرسالة.
+ * @param {Client} client - عميل واتساب.
+ */
+async function handleSummarizeCommand(message, client) {
+    const text = message.body.replace(/^!تلخيص|^!summarize/i, '').trim();
+    
+    if (!text) {
+        await message.reply(`⚠️ يرجى كتابة النص الذي تريد تلخيصه. مثال: !تلخيص نص طويل هنا...${SIGNATURE}`);
+        return;
+    }
+    
+    await message.react('📝');
+    
+    try {
+        // هنا يمكنك إضافة استدعاء API للتلخيص
+        // هذا مجرد مثال، يجب استبداله بالاستدعاء الفعلي
+        
+        // للتجربة، نستخدم تلخيص ثابت
+        const summary = `تلخيص: "${text.substring(0, 100)}..." (ميزة التلخيص لا تزال قيد التطوير)`;
+        
+        await message.reply(`📝 *الملخص:*\n\n${summary}${SIGNATURE}`);
+    } catch (error) {
+        logError(error, 'summarize command');
+        await message.reply(`⚠️ حدث خطأ أثناء التلخيص. يرجى المحاولة مرة أخرى لاحقًا.${SIGNATURE}`);
+    }
+}
+
+module.exports = {
+    '!سؤال': handleAICommand,
+    '!question': handleAICommand,
+    '!ترجمة': handleTranslateCommand,
+    '!translate': handleTranslateCommand,
+    '!تلخيص': handleSummarizeCommand,
+    '!summarize': handleSummarizeCommand,
+};
+// commands/course-management.js
+
+const state = require('../state');
+const { saveData, updateData, deleteData } = require('../database');
+const { SIGNATURE } = require('../config');
+const { isAdmin } = require('../utils');
+
+// =================================================================
+// Handler الرئيسي لبدء إدارة المقررات
+// =================================================================
+
+/**
+ * @description يبدأ عملية إدارة المقررات الدراسية.
+ * @param {Message} message - كائن الرسالة من whatsapp-web.js.
+ * @param {Client} client - كائن عميل whatsapp-web.js.
+ */
+async function handleCoursesCommand(message, client) {
+    const chat = await message.getChat();
+    if (!chat.isGroup) {
+        await message.reply(`⚠️ هذا الأمر يعمل في المجموعات فقط!${SIGNATURE}`);
+        return;
+    }
+
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    if (!(await isAdmin(client, authorId, chat.id._serialized))) {
+        await message.reply(`⚠️ هذا الأمر متاح للمشرفين فقط!${SIGNATURE}`);
+        return;
+    }
+    
+    await message.react('📚');
+    const senderName = contact.pushname || "المشرف";
+    const replyText = `
+📚 *إدارة المقررات الدراسية*
+
+مرحباً ${senderName}! 🙋‍♂️
+يرجى اختيار النوع الذي تريد إدارته:
+
+1. إدارة الشعب
+2. إدارة الفصول
+3. إدارة الأفواج
+4. إدارة الأساتذة
+5. إدارة المواد
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    state.userState.set(authorId, { 
+        step: 'select_management_type', 
+        timestamp: Date.now() 
+    });
+}
+
+// =================================================================
+// دوال معالجة ردود المستخدم (سيتم استدعاؤها من state-handler.js)
+// =================================================================
+
+/**
+ * @description يوجه المستخدم إلى قائمة الإدارة الصحيحة بناءً على اختياره.
+ */
+async function handleSelectManagementType(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+
+    const managementMap = {
+        '1': { handler: handleSectionsManagement, args: [] },
+        '2': { handler: handleClassesManagement, args: [] },
+        '3': { handler: handleGroupsManagement, args: [] },
+        '4': { handler: handleProfessorsManagement, args: [] },
+        '5': { handler: handleSubjectsManagement, args: [] },
+    };
+
+    if (managementMap[content]) {
+        const { handler, args } = managementMap[content];
+        await handler(message, ...args);
+    } else {
+        await message.reply(`⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 5.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description إدارة الشعب (لا حاجة لاختيار شعبة أولاً)
+ */
+async function handleSectionsManagement(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    await generateManagementMenu(message, 'الشعب', state.sections, 'sections_action');
+}
+
+/**
+ * @description إدارة الفصول (يبدأ باختيار الشعبة أولاً)
+ */
+async function handleClassesManagement(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    // عرض قائمة الشعب أولاً
+    if (state.sections.size === 0) {
+        await message.reply(`⚠️ لا توجد شعب مضافة بعد. يرجى إضافة شعب أولاً.${SIGNATURE}`);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة أولاً*\n\n`;
+    let index = 1;
+    for (const [id, name] of state.sections) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الشعبة أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    state.userState.set(authorId, { 
+        step: 'select_section_for_classes', 
+        timestamp: Date.now(),
+        managementType: 'classes'
+    });
+}
+
+/**
+ * @description إدارة الأفواج (يبدأ باختيار الشعبة ثم الفصل)
+ */
+async function handleGroupsManagement(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    // عرض قائمة الشعب أولاً
+    if (state.sections.size === 0) {
+        await message.reply(`⚠️ لا توجد شعب مضافة بعد. يرجى إضافة شعب أولاً.${SIGNATURE}`);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة أولاً*\n\n`;
+    let index = 1;
+    for (const [id, name] of state.sections) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الشعبة أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    state.userState.set(authorId, { 
+        step: 'select_section_for_groups', 
+        timestamp: Date.now(),
+        managementType: 'groups'
+    });
+}
+
+/**
+ * @description إدارة الأساتذة (يبدأ باختيار الشعبة ثم الفصل)
+ */
+async function handleProfessorsManagement(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    // عرض قائمة الشعب أولاً
+    if (state.sections.size === 0) {
+        await message.reply(`⚠️ لا توجد شعب مضافة بعد. يرجى إضافة شعب أولاً.${SIGNATURE}`);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة أولاً*\n\n`;
+    let index = 1;
+    for (const [id, name] of state.sections) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الشعبة أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    state.userState.set(authorId, { 
+        step: 'select_section_for_professors', 
+        timestamp: Date.now(),
+        managementType: 'professors'
+    });
+}
+
+/**
+ * @description إدارة المواد (يبدأ باختيار الشعبة ثم الفصل)
+ */
+async function handleSubjectsManagement(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    // عرض قائمة الشعب أولاً
+    if (state.sections.size === 0) {
+        await message.reply(`⚠️ لا توجد شعب مضافة بعد. يرجى إضافة شعب أولاً.${SIGNATURE}`);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة أولاً*\n\n`;
+    let index = 1;
+    for (const [id, name] of state.sections) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الشعبة أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    state.userState.set(authorId, { 
+        step: 'select_section_for_subjects', 
+        timestamp: Date.now(),
+        managementType: 'subjects'
+    });
+}
+
+/**
+ * @description اختيار الشعبة للفصول
+ */
+async function handleSelectSectionForClasses(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const sectionIndex = parseInt(content) - 1;
+    if (isNaN(sectionIndex) || sectionIndex < 0 || sectionIndex >= state.sections.size) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${state.sections.size}.${SIGNATURE}`);
+        return;
+    }
+    
+    // الحصول على معرف الشعبة
+    const sectionIds = Array.from(state.sections.keys());
+    const sectionId = sectionIds[sectionIndex];
+    const sectionName = state.sections.get(sectionId);
+    
+    // عرض قائمة الفصول في هذه الشعبة
+    const classesInSection = Array.from(state.classes).filter(([id, name]) => {
+        // هنا يجب أن نرى إذا كان الفصل ينتمي للشعبة
+        // في التطبيق الحقيقي، يجب التحقق من قاعدة البيانات
+        return true;
+    });
+    
+    if (classesInSection.length === 0) {
+        await message.reply(`⚠️ لا توجد فصول في شعبة "${sectionName}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    let list = `📋 *اختر الفصل في شعبة "${sectionName}"*\n\n`;
+    let index = 1;
+    for (const [id, name] of classesInSection) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الفصل أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    userState.step = 'select_class_for_management';
+    userState.sectionId = sectionId;
+    userState.sectionName = sectionName;
+    userState.classes = classesInSection;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الشعبة للأفواج
+ */
+async function handleSelectSectionForGroups(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const sectionIndex = parseInt(content) - 1;
+    if (isNaN(sectionIndex) || sectionIndex < 0 || sectionIndex >= state.sections.size) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${state.sections.size}.${SIGNATURE}`);
+        return;
+    }
+    
+    // الحصول على معرف الشعبة
+    const sectionIds = Array.from(state.sections.keys());
+    const sectionId = sectionIds[sectionIndex];
+    const sectionName = state.sections.get(sectionId);
+    
+    // عرض قائمة الفصول في هذه الشعبة
+    const classesInSection = Array.from(state.classes).filter(([id, name]) => {
+        return true;
+    });
+    
+    if (classesInSection.length === 0) {
+        await message.reply(`⚠️ لا توجد فصول في شعبة "${sectionName}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة "${sectionName}" ثم اختر الفصل*\n\n`;
+    let index = 1;
+    for (const [id, name] of classesInSection) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الفصل أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    userState.step = 'select_class_for_groups';
+    userState.sectionId = sectionId;
+    userState.sectionName = sectionName;
+    userState.classes = classesInSection;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الشعبة للأساتذة
+ */
+async function handleSelectSectionForProfessors(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const sectionIndex = parseInt(content) - 1;
+    if (isNaN(sectionIndex) || sectionIndex < 0 || sectionIndex >= state.sections.size) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${state.sections.size}.${SIGNATURE}`);
+        return;
+    }
+    
+    // الحصول على معرف الشعبة
+    const sectionIds = Array.from(state.sections.keys());
+    const sectionId = sectionIds[sectionIndex];
+    const sectionName = state.sections.get(sectionId);
+    
+    // عرض قائمة الفصول في هذه الشعبة
+    const classesInSection = Array.from(state.classes).filter(([id, name]) => {
+        return true;
+    });
+    
+    if (classesInSection.length === 0) {
+        await message.reply(`⚠️ لا توجد فصول في شعبة "${sectionName}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة "${sectionName}" ثم اختر الفصل*\n\n`;
+    let index = 1;
+    for (const [id, name] of classesInSection) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الفصل أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    userState.step = 'select_class_for_professors';
+    userState.sectionId = sectionId;
+    userState.sectionName = sectionName;
+    userState.classes = classesInSection;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الشعبة للمواد
+ */
+async function handleSelectSectionForSubjects(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const sectionIndex = parseInt(content) - 1;
+    if (isNaN(sectionIndex) || sectionIndex < 0 || sectionIndex >= state.sections.size) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${state.sections.size}.${SIGNATURE}`);
+        return;
+    }
+    
+    // الحصول على معرف الشعبة
+    const sectionIds = Array.from(state.sections.keys());
+    const sectionId = sectionIds[sectionIndex];
+    const sectionName = state.sections.get(sectionId);
+    
+    // عرض قائمة الفصول في هذه الشعبة
+    const classesInSection = Array.from(state.classes).filter(([id, name]) => {
+        return true;
+    });
+    
+    if (classesInSection.length === 0) {
+        await message.reply(`⚠️ لا توجد فصول في شعبة "${sectionName}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    let list = `📋 *اختر الشعبة "${sectionName}" ثم اختر الفصل*\n\n`;
+    let index = 1;
+    for (const [id, name] of classesInSection) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+    
+    const replyText = `
+${list}
+
+💡 أرسل رقم الفصل أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    userState.step = 'select_class_for_subjects';
+    userState.sectionId = sectionId;
+    userState.sectionName = sectionName;
+    userState.classes = classesInSection;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الفصل للإدارة
+ */
+async function handleSelectClassForManagement(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const classIndex = parseInt(content) - 1;
+    if (isNaN(classIndex) || classIndex < 0 || classIndex >= userState.classes.length) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${userState.classes.length}.${SIGNATURE}`);
+        return;
+    }
+    
+    const [classId, className] = userState.classes[classIndex];
+    
+    // عرض قائمة الفصول في الشعبة المختارة
+    await generateManagementMenu(message, `الفصول في شعبة "${userState.sectionName}"`, userState.classes, 'classes_action');
+    
+    userState.classId = classId;
+    userState.className = className;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الفصل للأفواج
+ */
+async function handleSelectClassForGroups(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const classIndex = parseInt(content) - 1;
+    if (isNaN(classIndex) || classIndex < 0 || classIndex >= userState.classes.length) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${userState.classes.length}.${SIGNATURE}`);
+        return;
+    }
+    
+    const [classId, className] = userState.classes[classIndex];
+    
+    // عرض قائمة الأفواج في الفصل المختار
+    const groupsInClass = Array.from(state.groupsData).filter(([id, name]) => {
+        // هنا يجب أن نرى إذا كانت المجموعة تنتمي للفصل
+        return true;
+    });
+    
+    if (groupsInClass.length === 0) {
+        await message.reply(`⚠️ لا توجد أفواج في فصل "${className}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    await generateManagementMenu(message, `الأفواج في فصل "${className}"`, groupsInClass, 'groups_action');
+    
+    userState.classId = classId;
+    userState.className = className;
+    userState.groups = groupsInClass;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الفصل للأساتذة
+ */
+async function handleSelectClassForProfessors(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const classIndex = parseInt(content) - 1;
+    if (isNaN(classIndex) || classIndex < 0 || classIndex >= userState.classes.length) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${userState.classes.length}.${SIGNATURE}`);
+        return;
+    }
+    
+    const [classId, className] = userState.classes[classIndex];
+    
+    // عرض قائمة الأساتذة في الفصل المختار
+    const professorsInClass = Array.from(state.professors).filter(([id, name]) => {
+        // هنا يجب أن نرى إذا كان الأستاذ يدرس في الفصل
+        return true;
+    });
+    
+    if (professorsInClass.length === 0) {
+        await message.reply(`⚠️ لا توجد أساتذة في فصل "${className}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    await generateManagementMenu(message, `الأساتذة في فصل "${className}"`, professorsInClass, 'professors_action');
+    
+    userState.classId = classId;
+    userState.className = className;
+    userState.professors = professorsInClass;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description اختيار الفصل للمواد
+ */
+async function handleSelectClassForSubjects(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    
+    const classIndex = parseInt(content) - 1;
+    if (isNaN(classIndex) || classIndex < 0 || classIndex >= userState.classes.length) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${userState.classes.length}.${SIGNATURE}`);
+        return;
+    }
+    
+    const [classId, className] = userState.classes[classIndex];
+    
+    // عرض قائمة المواد في الفصل المختار
+    const subjectsInClass = Array.from(state.subjects).filter(([id, name]) => {
+        // هنا يجب أن نرى إذا كانت المادة تنتمي للفصل
+        return true;
+    });
+    
+    if (subjectsInClass.length === 0) {
+        await message.reply(`⚠️ لا توجد مواد في فصل "${className}".${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    await generateManagementMenu(message, `المواد في فصل "${className}"`, subjectsInClass, 'subjects_action');
+    
+    userState.classId = classId;
+    userState.className = className;
+    userState.subjects = subjectsInClass;
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description دالة عامة لإنشاء قوائم الإدارة (عرض، إضافة، تعديل، حذف).
+ */
+async function generateManagementMenu(message, typeName, dataMap, nextStep) {
+    let list = `📋 *قائمة ${typeName}*\n\n`;
+    if (dataMap.size === 0) {
+        list += `لا توجد ${typeName} مضافة بعد.`;
+    } else {
+        let index = 1;
+        for (const [id, name] of dataMap) {
+            list += `${index}. ${name} (المعرف: ${id})\n`;
+            index++;
+        }
+    }
+
+    const replyText = `
+${list}
+
+---
+ماذا تريد أن تفعل؟
+1. عرض القائمة
+2. إضافة عنصر جديد
+3. تعديل عنصر
+4. حذف عنصر
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    state.userState.set(authorId, { 
+        step: nextStep, 
+        timestamp: Date.now(),
+        // نخزن البيانات اللازمة للخطوات التالية
+        dataType: typeName,
+        dataMap: dataMap,
+        dbTable: typeName === 'الأفواج' ? 'groups' : typeName.slice(0, -1), // اسم الجدول في قاعدة البيانات
+    });
+}
+
+/**
+ * @description دالة عامة لمعالجة الإجراءات (عرض، إضافة، تعديل، حذف).
+ */
+async function handleGenericAction(message) {
+    const content = message.body.trim();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+
+    const { dataType, dataMap, dbTable } = userState;
+    
+    if (content === '1') { // عرض
+        // تم العرض بالفعل في القائمة السابقة، لذا ننهي الجلسة
+        await message.reply(`✅ تم عرض قائمة ${dataType}.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    } 
+    else if (content === '2') { // إضافة
+        await message.reply(`📝 *إضافة ${dataType.slice(0, -1)} جديد*\n\nيرجى إرسال اسم ${dataType.slice(0, -1)} الجديد:${SIGNATURE}`);
+        userState.step = 'add_new_item';
+        state.userState.set(authorId, userState);
+    } 
+    else if (content === '3') { // تعديل
+        if (dataMap.size === 0) {
+            await message.reply(`⚠️ لا توجد ${dataType} لتعديلها.${SIGNATURE}`);
+            state.userState.delete(authorId);
+            return;
+        }
+        
+        let list = `📋 *اختر ${dataType.slice(0, -1)} للتعديل*\n\n`;
+        let index = 1;
+        for (const [id, name] of dataMap) {
+            list += `${index}. ${name}\n`;
+            index++;
+        }
+        
+        list += `\n💡 أرسل رقم ${dataType.slice(0, -1)} الذي تريد تعديله أو *إلغاء* للخروج.${SIGNATURE}`;
+        await message.reply(list);
+        
+        userState.step = 'select_item_to_edit';
+        state.userState.set(authorId, userState);
+    } 
+    else if (content === '4') { // حذف
+        if (dataMap.size === 0) {
+            await message.reply(`⚠️ لا توجد ${dataType} لحذفها.${SIGNATURE}`);
+            state.userState.delete(authorId);
+            return;
+        }
+        
+        let list = `🗑️ *اختر ${dataType.slice(0, -1)} للحذف*\n\n`;
+        let index = 1;
+        for (const [id, name] of dataMap) {
+            list += `${index}. ${name}\n`;
+            index++;
+        }
+        
+        list += `\n💡 أرسل رقم ${dataType.slice(0, -1)} الذي تريد حذفه أو *إلغاء* للخروج.${SIGNATURE}`;
+        await message.reply(list);
+        
+        userState.step = 'select_item_to_delete';
+        state.userState.set(authorId, userState);
+    } 
+    else {
+        await message.reply(`⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description يضيف عنصرًا جديدًا (شعبة، فصل، مجموعة، أستاذ، مادة).
+ */
+async function handleAddNewItem(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    const { dataType, dbTable } = userState;
+    
+    const itemName = message.body.trim();
+    if (!itemName) {
+        await message.reply(`⚠️ يرجى إرسال اسم ${dataType.slice(0, -1)} صالح.${SIGNATURE}`);
+        return;
+    }
+    
+    try {
+        // في هذا المثال، سنستخدم دالة saveData المفترضة في database.js
+        // قد تحتاج إلى تعديل هذا الجزء ليناسب هيكل قاعدة البيانات الفعلي
+        const newItemId = await saveData(dbTable, { name: itemName });
+        
+        // تحديث الحالة
+        userState.dataMap.set(newItemId, itemName);
+        
+        await message.reply(`✅ تمت إضافة ${dataType.slice(0, -1)} "${itemName}" بنجاح.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    } catch (error) {
+        console.error(`[❌] Error adding ${dataType.slice(0, -1)}:`, error);
+        await message.reply(`⚠️ حدث خطأ أثناء إضافة ${dataType.slice(0, -1)}.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    }
+}
+
+/**
+ * @description يعدل عنصرًا موجودًا.
+ */
+async function handleSelectItemToEdit(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    const { dataType, dataMap } = userState;
+    
+    const itemIndex = parseInt(message.body.trim()) - 1;
+    if (isNaN(itemIndex) || itemIndex < 0 || itemIndex >= dataMap.size) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${dataMap.size}.${SIGNATURE}`);
+        return;
+    }
+    
+    // الحصول على معرف العنصر المحدد
+    const itemIds = Array.from(dataMap.keys());
+    const itemId = itemIds[itemIndex];
+    const currentName = dataMap.get(itemId);
+    
+    await message.reply(`📝 *تعديل ${dataType.slice(0, -1)}*\n\nالاسم الحالي: ${currentName}\n\nيرجى إرسال الاسم الجديد:${SIGNATURE}`);
+    
+    userState.selectedItemId = itemId;
+    userState.step = 'edit_item';
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description يحفظ التعديلات على العنصر.
+ */
+async function handleEditItem(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    const { dataType, dbTable, selectedItemId } = userState;
+    
+    const newName = message.body.trim();
+    if (!newName) {
+        await message.reply(`⚠️ يرجى إرسال اسم ${dataType.slice(0, -1)} صالح.${SIGNATURE}`);
+        return;
+    }
+    
+    try {
+        // في هذا المثال، سنستخدم دالة updateData المفترضة في database.js
+        // قد تحتاج إلى تعديل هذا الجزء ليناسب هيكل قاعدة البيانات الفعلي
+        await updateData(dbTable, selectedItemId, { name: newName });
+        
+        // تحديث الحالة
+        userState.dataMap.set(selectedItemId, newName);
+        
+        await message.reply(`✅ تم تعديل ${dataType.slice(0, -1)} بنجاح.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    } catch (error) {
+        console.error(`[❌] Error editing ${dataType.slice(0, -1)}:`, error);
+        await message.reply(`⚠️ حدث خطأ أثناء تعديل ${dataType.slice(0, -1)}.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    }
+}
+
+/**
+ * @description يحذف عنصرًا موجودًا.
+ */
+async function handleSelectItemToDelete(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    const { dataType, dataMap } = userState;
+    
+    const itemIndex = parseInt(message.body.trim()) - 1;
+    if (isNaN(itemIndex) || itemIndex < 0 || itemIndex >= dataMap.size) {
+        await message.reply(`⚠️ رقم غير صالح. يرجى إرسال رقم من 1 إلى ${dataMap.size}.${SIGNATURE}`);
+        return;
+    }
+    
+    // الحصول على معرف العنصر المحدد
+    const itemIds = Array.from(dataMap.keys());
+    const itemId = itemIds[itemIndex];
+    const itemName = dataMap.get(itemId);
+    
+    await message.reply(`⚠️ *تأكيد الحذف*\n\nهل أنت متأكد من حذف ${dataType.slice(0, -1)} "${itemName}"؟\n\nأرسل "نعم" للتأكيد أو أي رسالة أخرى للإلغاء.${SIGNATURE}`);
+    
+    userState.selectedItemId = itemId;
+    userState.step = 'delete_item';
+    state.userState.set(authorId, userState);
+}
+
+/**
+ * @description ينفذ حذف العنصر بعد التأكيد.
+ */
+async function handleDeleteItem(message) {
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    const userState = state.userState.get(authorId);
+    const { dataType, dbTable, selectedItemId, dataMap } = userState;
+    
+    if (message.body.trim().toLowerCase() !== 'نعم') {
+        await message.reply(`✅ تم إلغاء عملية الحذف.${SIGNATURE}`);
+        state.userState.delete(authorId);
+        return;
+    }
+    
+    try {
+        // في هذا المثال، سنستخدم دالة deleteData المفترضة في database.js
+        // قد تحتاج إلى تعديل هذا الجزء ليناسب هيكل قاعدة البيانات الفعلي
+        await deleteData(dbTable, selectedItemId);
+        
+        // تحديث الحالة
+        const itemName = dataMap.get(selectedItemId);
+        dataMap.delete(selectedItemId);
+        
+        await message.reply(`✅ تم حذف ${dataType.slice(0, -1)} "${itemName}" بنجاح.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    } catch (error) {
+        console.error(`[❌] Error deleting ${dataType.slice(0, -1)}:`, error);
+        await message.reply(`⚠️ حدث خطأ أثناء حذف ${dataType.slice(0, -1)}.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    }
+}
+
+// =================================================================
+// تصدير الأوامر
+// =================================================================
+
+module.exports = {
+    '!مقررات': handleCoursesCommand,
+    '!courses': handleCoursesCommand,
+    
+    // هذه الدوال ستستخدم في state-handler.js
+    handleSelectManagementType,
+    handleSectionsManagement,
+    handleClassesManagement,
+    handleGroupsManagement,
+    handleProfessorsManagement,
+    handleSubjectsManagement,
+    handleSelectSectionForClasses,
+    handleSelectSectionForGroups,
+    handleSelectSectionForProfessors,
+    handleSelectSectionForSubjects,
+    handleSelectClassForManagement,
+    handleSelectClassForGroups,
+    handleSelectClassForProfessors,
+    handleSelectClassForSubjects,
+    handleGenericAction,
+    handleAddNewItem,
+    handleSelectItemToEdit,
+    handleEditItem,
+    handleSelectItemToDelete,
+    handleDeleteItem,
+};
+// commands/lecture-commands.js
+
+const { isAdmin } = require('../utils');
+const { SIGNATURE } = require('../config');
+const state = require('../state');
+const { addLecture } = require('../utils');
+const db = require('../database');
+
+/**
+ * @description يبدأ عملية إضافة محاضرة جديدة.
+ * @param {Message} message - كائن الرسالة من whatsapp-web.js.
+ * @param {Client} client - كائن عميل whatsapp-web.js.
+ */
+async function handleAddLectureCommand(message, client) {
+    const chat = await message.getChat();
+    if (!chat.isGroup) {
+        await message.reply(`⚠️ هذا الأمر يعمل في المجموعات فقط!${SIGNATURE}`);
+        return;
+    }
+
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    if (!(await isAdmin(client, authorId, chat.id._serialized))) {
+        await message.reply(`⚠️ هذا الأمر متاح للمشرفين فقط!${SIGNATURE}`);
+        return;
+    }
+    
+    await message.react('📚');
+    const senderName = contact.pushname || "المشرف";
+    
+    // التحقق من وجود شعب
+    if (state.sections.size === 0) {
+        await message.reply(`⚠️ لا توجد شعب مضافة بعد. يرجى إضافة شعبة أولاً.${SIGNATURE}`);
+        return;
+    }
+    
+    const replyText = `
+📚 *إضافة محاضرة جديدة*
+
+مرحباً ${senderName}! 🙋‍♂️
+سأقوم بتوجيهك خطوة بخطوة لإضافة محاضرة جديدة.
+
+يرجى اختيار الشعبة:
+`;
+
+    let list = '';
+    let index = 1;
+    for (const [id, name] of state.sections) {
+        list += `${index}. ${name}\n`;
+        index++;
+    }
+
+    await message.reply(replyText + list + `\n💡 أرسل رقم الشعبة أو *إلغاء* للخروج.${SIGNATURE}`);
+    
+    state.userState.set(authorId, { 
+        step: 'add_lecture_select_section', 
+        timestamp: Date.now(),
+        lectureData: {}
+    });
+}
+
+/**
+ * @description يعرض قائمة المحاضرات المتاحة.
+ * @param {Message} message - كائن الرسالة من whatsapp-web.js.
+ * @param {Client} client - كائن عميل whatsapp-web.js.
+ */
+async function handleListLecturesCommand(message, client) {
+    const chat = await message.getChat();
+    if (!chat.isGroup) {
+        await message.reply(`⚠️ هذا الأمر يعمل في المجموعات فقط!${SIGNATURE}`);
+        return;
+    }
+
+    await message.react('📋');
+    
+    try {
+        const lectures = await db.getAllLectures();
+        
+        if (lectures.length === 0) {
+            await message.reply(`⚠️ لا توجد محاضرات مضافة بعد.${SIGNATURE}`);
+            return;
+        }
+        
+        let list = `📋 *قائمة المحاضرات*\n\n`;
+        lectures.forEach((lecture, index) => {
+            const date = lecture.created_at ? 
+                new Date(lecture.created_at).toLocaleDateString('ar-EG') : 
+                'غير محدد';
+            list += `${index + 1}. ${lecture.section_name || 'غير محدد'} - ${lecture.class_name || 'غير محدد'}\n`;
+            list += `   المادة: ${lecture.subject_name || 'غير محدد'}\n`;
+            list += `   المحاضرة: ${lecture.lecture_number || 'غير محدد'}\n`;
+            list += `   الأستاذ: ${lecture.professor_name || 'غير محدد'}\n`;
+            list += `   التاريخ: ${date}\n\n`;
+        });
+        
+        await message.reply(list + SIGNATURE);
+    } catch (error) {
+        console.error('[❌] Error listing lectures:', error);
+        await message.reply(`⚠️ حدث خطأ أثناء جلب قائمة المحاضرات.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description ينشئ جدول المحاضرات كملف PDF.
+ * @param {Message} message - كائن الرسالة من whatsapp-web.js.
+ * @param {Client} client - كائن عميل whatsapp-web.js.
+ */
+async function handleLecturesTableCommand(message, client) {
+    const chat = await message.getChat();
+    if (!chat.isGroup) {
+        await message.reply(`⚠️ هذا الأمر يعمل في المجموعات فقط!${SIGNATURE}`);
+        return;
+    }
+
+    await message.react('📊');
+    await message.reply(`🔄 *جاري إنشاء جدول المحاضرات...*`);
+
+    try {
+        const lectures = await db.getAllLectures();
+        
+        if (lectures.length === 0) {
+            await message.reply(`⚠️ لا توجد محاضرات لإنشاء جدول لها.${SIGNATURE}`);
+            return;
+        }
+        
+        // التحقق من وجود بيانات صالحة
+        const validLectures = lectures.filter(lecture => 
+            lecture.section_name && 
+            lecture.class_name && 
+            lecture.subject_name && 
+            lecture.lecture_number && 
+            lecture.professor_name
+        );
+        
+        if (validLectures.length === 0) {
+            await message.reply(`⚠️ لا توجد بيانات صالحة لإنشاء جدول المحاضرات.${SIGNATURE}`);
+            return;
+        }
+        
+        const { generateLecturesTablePDF } = require('../utils');
+        const media = await generateLecturesTablePDF(validLectures);
+        
+        await client.sendMessage(chat.id._serialized, media, {
+            caption: `📊 *جدول المحاضرات*\n\nتم إنشاء الجدول بنجاح.${SIGNATURE}`
+        });
+    } catch (error) {
+        console.error('[❌] Error generating lectures table:', error);
+        await message.reply(`⚠️ حدث خطأ أثناء إنشاء جدول المحاضرات: ${error.message}${SIGNATURE}`);
+    }
+}
+
+module.exports = {
+    '!اضافة_محاضرة': handleAddLectureCommand,
+    '!add_lecture': handleAddLectureCommand,
+    '!قائمة_المحاضرات': handleListLecturesCommand,
+    '!list_lectures': handleListLecturesCommand,
+    '!جدول_المحاضرات': handleLecturesTableCommand,
+    '!lectures_table': handleLecturesTableCommand,
+};
+// commands/management-handler.js
+
+const { isAdmin } = require('../utils');
+const { SIGNATURE } = require('../config');
+const state = require('../state');
+
+/**
+ * @description يبدأ عملية الإدارة العامة.
+ * @param {Message} message - كائن الرسالة من whatsapp-web.js.
+ * @param {Client} client - كائن عميل whatsapp-web.js.
+ */
+async function handleManagementCommand(message, client) {
+    const chat = await message.getChat();
+    const contact = await message.getContact();
+    const authorId = contact.id._serialized;
+    
+    // التحقق من أن المستخدم مشرف
+    if (chat.isGroup && !(await isAdmin(client, authorId, chat.id._serialized))) {
+        await message.reply(`⚠️ هذا الأمر متاح للمشرفين فقط!${SIGNATURE}`);
+        return;
+    }
+    
+    await message.react('⚙️');
+    const senderName = contact.pushname || "المستخدم";
+    
+    const replyText = `
+⚙️ *لوحة التحكم*
+
+مرحباً ${senderName}! 🙋‍♂️
+يرجى اختيار الإجراء الذي تريد القيام به:
+
+1. عرض الشعب الموجودة
+2. إضافة شعبة جديدة
+3. تعديل شعبة موجودة
+4. حذف شعبة
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج.${SIGNATURE}`;
+    
+    await message.reply(replyText);
+    state.userState.set(authorId, { 
+        step: 'management_select_action', 
+        timestamp: Date.now() 
+    });
+}
+
+module.exports = {
+    '!إدارة': handleManagementCommand,
+    '!management': handleManagementCommand,
+};
+// commands/setup-handler-steps.js
+// يحتوي هذا الملف على منطق كل خطوة في عملية الإعداد التفاعلية
+
+const state = require('../state');
+const db = require('../database');
+const { SIGNATURE } = require('../config');
+
+/**
+ * @description الخطوة 1: اختيار الإجراء (عرض، إضافة، ...)
+ */
+async function handleSetupSelectAction(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const choice = message.body.trim();
+
+    if (choice === '1') {
+        // عرض الشعب الموجودة
+        if (state.sections.size === 0) {
+            await message.reply(`ℹ️ لا توجد أي شعب مضافة حالياً.${SIGNATURE}`);
+        } else {
+            let list = '📋 *الشعب المسجلة حالياً:*\n\n';
+            for (const [id, sectionData] of state.sections) {
+                list += `- ${sectionData.name} (ID: ${id})\n`;
+            }
+            await message.reply(list + SIGNATURE);
+        }
+        state.userState.delete(authorId); // إنهاء الجلسة
+
+    } else if (choice === '2') {
+        // بدء عملية إضافة شعبة جديدة
+        await message.reply(`✅ حسنًا، لنبدأ بإضافة شعبة جديدة.\n\n📝 *ما هو اسم الشعبة؟* (مثال: شعبة القانون)`);
+        userState.step = 'setup_get_section_name';
+        userState.setupData = {
+            sectionName: '',
+            classes: []
+        };
+    } else if (choice === '3' || choice === '4') {
+        await message.reply(`🚧 هذه الميزة لا تزال قيد التطوير.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    } else {
+        await message.reply(`⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description الخطوة 2: الحصول على اسم الشعبة
+ */
+async function handleSetupGetSectionName(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const sectionName = message.body.trim();
+
+    if (sectionName.length < 3) {
+        return message.reply(`⚠️ اسم الشعبة قصير جداً. يرجى إدخال اسم صحيح.`);
+    }
+
+    userState.setupData.sectionName = sectionName;
+    userState.step = 'setup_get_class_count';
+    await message.reply(`👍 تم تحديد اسم الشعبة: *${sectionName}*\n\n🔢 *كم عدد الفصول (Semesters) في هذه الشعبة؟* (مثال: 2)`);
+}
+
+/**
+ * @description الخطوة 3: الحصول على عدد الفصول
+ */
+async function handleSetupGetClassCount(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const classCount = parseInt(message.body.trim());
+
+    if (isNaN(classCount) || classCount <= 0 || classCount > 10) {
+        return message.reply(`⚠️ يرجى إدخال رقم صحيح بين 1 و 10.`);
+    }
+    
+    userState.setupData.classCount = classCount;
+    userState.setupData.classes = Array.from({ length: classCount });
+    userState.currentClassIndex = 0; // سنبدأ بالفصل الأول
+    userState.step = 'setup_get_class_names';
+
+    await message.reply(`🏫 جيد، ${classCount} فصول.\n\n*الآن، ما هو اسم الفصل رقم 1؟* (مثال: S1 أو الفصل الأول)`);
+}
+
+/**
+ * @description الخطوة 4: تكرار الحصول على أسماء الفصول والمواد والأفواج
+ */
+async function handleSetupGetClassNames(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex, classCount } = userState.setupData;
+    const className = message.body.trim();
+
+    if (className.length < 2) {
+        return message.reply(`⚠️ اسم الفصل قصير جداً.`);
+    }
+    
+    // تخزين البيانات المؤقتة للفصل الحالي
+    userState.setupData.classes[currentClassIndex] = {
+        className: className,
+        subjects: [],
+        groups: []
+    };
+
+    userState.step = 'setup_get_subjects_for_class';
+    await message.reply(`📚 تم تحديد اسم الفصل: *${className}*\n\n*الآن، أدخل أسماء المواد لهذا الفصل، مفصولة بفاصلة (,)*\nمثال: قانون, اقتصاد, شريعة`);
+}
+
+async function handleSetupGetSubjects(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex } = userState.setupData;
+
+    const subjects = message.body.split(',').map(s => s.trim()).filter(Boolean);
+    if (subjects.length === 0) {
+        return message.reply('⚠️ لم يتم إدخال أي مواد. يرجى إدخال أسماء المواد مفصولة بفاصلة.');
+    }
+    
+    userState.setupData.classes[currentClassIndex].subjects = subjects;
+    userState.step = 'setup_get_groups_and_profs';
+
+    await message.reply(`👍 تم إضافة ${subjects.length} مواد.\n\n*الآن، أدخل الأفواج والأساتذة لهذا الفصل بالصيغة التالية (كل فوج في سطر):*\n`
+        + `*اسم الفوج 1 : اسم الأستاذ 1*\n`
+        + `*اسم الفوج 2 : اسم الأستاذ 2*\n`
+        + `مثال:\nالفوج الأول : أستاذ محمد\nالفوج الثاني : أستاذة فاطمة`
+    );
+}
+
+async function handleSetupGetGroupsAndProfs(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex, classCount } = userState.setupData;
+
+    const lines = message.body.split('\n').filter(Boolean);
+    const groups = [];
+    for (const line of lines) {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+            groups.push({ groupName: parts[0].trim(), professorName: parts[1].trim() });
+        }
+    }
+
+    if (groups.length === 0) {
+        return message.reply(`⚠️ لم يتم إدخال الأفواج بالصيغة الصحيحة. يرجى استخدام الصيغة:\nاسم الفوج : اسم الأستاذ`);
+    }
+
+    userState.setupData.classes[currentClassIndex].groups = groups;
+    
+    // التحقق إذا انتهينا من كل الفصول
+    if (currentClassIndex + 1 < classCount) {
+        userState.setupData.currentClassIndex++;
+        userState.step = 'setup_get_class_names';
+        await message.reply(`✅ تم إعداد الفصل ${currentClassIndex + 1} بنجاح.\n\n*ننتقل للفصل التالي. ما هو اسم الفصل رقم ${currentClassIndex + 2}؟*`);
+    } else {
+        // انتهينا، نعرض الملخص
+        userState.step = 'setup_confirm_and_save';
+        let summary = `🎉 *اكتمل الإعداد! يرجى مراجعة البيانات:*\n\n`
+            + `*الشعبة:* ${userState.setupData.sectionName}\n\n`;
+        
+        userState.setupData.classes.forEach((classData, index) => {
+            summary += `*الفصل ${index + 1}: ${classData.className}*\n`
+                + `  - المواد: ${classData.subjects.join(', ')}\n`
+                + `  - الأفواج والأساتذة:\n`;
+            classData.groups.forEach(g => {
+                summary += `    • ${g.groupName} (الأستاذ: ${g.professorName})\n`;
+            });
+            summary += `\n`;
+        });
+
+        summary += `*هل البيانات صحيحة؟*\nأرسل "نعم" للحفظ أو "إلغاء" للتجاهل.`;
+        await message.reply(summary);
+    }
+}
+
+/**
+ * @description الخطوة الأخيرة: تأكيد وحفظ البيانات في قاعدة البيانات
+ */
+async function handleSetupConfirmAndSave(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+
+    if (message.body.trim().toLowerCase() === 'نعم') {
+        try {
+            await message.react('🔄');
+            // استدعاء دالة الحفظ في قاعدة البيانات
+            await db.saveSectionSetup(userState.setupData);
+            
+            // إعادة تحميل بيانات المقررات في الذاكرة لتحديثها
+            const coursesData = await db.loadCoursesData();
+            state.sections = coursesData.sections;
+            state.classes = coursesData.classes;
+            // ... (بقية البيانات)
+            
+            await message.reply(`✅ تم حفظ الشعبة "${userState.setupData.sectionName}" وكل تفاصيلها بنجاح في قاعدة البيانات!${SIGNATURE}`);
+        } catch (error) {
+            console.error('[❌] Error saving setup data:', error);
+            await message.reply(`⚠️ حدث خطأ فادح أثناء الحفظ: ${error.message}${SIGNATURE}`);
+        }
+    } else {
+        await message.reply(`تم إلغاء العملية. لم يتم حفظ أي بيانات.${SIGNATURE}`);
+    }
+    state.userState.delete(authorId); // إنهاء الجلسة
+}
+
+module.exports = {
+    handleSetupSelectAction,
+    handleSetupGetSectionName,
+    handleSetupGetClassCount,
+    handleSetupGetClassNames,
+    handleSetupGetSubjects,
+    handleSetupGetGroupsAndProfs,
+    handleSetupConfirmAndSave,
+};
+// commands/setup-handler-steps.js
+// يحتوي هذا الملف على منطق كل خطوة في عملية الإعداد التفاعلية
+
+const state = require('../state');
+const db = require('../database');
+const { SIGNATURE } = require('../config');
+
+/**
+ * @description الخطوة 1: اختيار الإجراء (عرض، إضافة، ...)
+ */
+async function handleSetupSelectAction(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const choice = message.body.trim();
+
+    if (choice === '1') {
+        // عرض الشعب الموجودة
+        if (state.sections.size === 0) {
+            await message.reply(`ℹ️ لا توجد أي شعب مضافة حالياً.${SIGNATURE}`);
+        } else {
+            let list = '📋 *الشعب المسجلة حالياً:*\n\n';
+            for (const [id, sectionData] of state.sections) {
+                list += `- ${sectionData.name} (ID: ${id})\n`;
+            }
+            await message.reply(list + SIGNATURE);
+        }
+        state.userState.delete(authorId); // إنهاء الجلسة
+
+    } else if (choice === '2') {
+        // بدء عملية إضافة شعبة جديدة
+        await message.reply(`✅ حسنًا، لنبدأ بإضافة شعبة جديدة.\n\n📝 *ما هو اسم الشعبة؟* (مثال: شعبة القانون)`);
+        userState.step = 'setup_get_section_name';
+        userState.setupData = {
+            sectionName: '',
+            classes: []
+        };
+    } else if (choice === '3' || choice === '4') {
+        await message.reply(`🚧 هذه الميزة لا تزال قيد التطوير.${SIGNATURE}`);
+        state.userState.delete(authorId);
+    } else {
+        await message.reply(`⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4.${SIGNATURE}`);
+    }
+}
+
+/**
+ * @description الخطوة 2: الحصول على اسم الشعبة
+ */
+async function handleSetupGetSectionName(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const sectionName = message.body.trim();
+
+    if (sectionName.length < 3) {
+        return message.reply(`⚠️ اسم الشعبة قصير جداً. يرجى إدخال اسم صحيح.`);
+    }
+
+    userState.setupData.sectionName = sectionName;
+    userState.step = 'setup_get_class_count';
+    await message.reply(`👍 تم تحديد اسم الشعبة: *${sectionName}*\n\n🔢 *كم عدد الفصول (Semesters) في هذه الشعبة؟* (مثال: 2)`);
+}
+
+/**
+ * @description الخطوة 3: الحصول على عدد الفصول
+ */
+async function handleSetupGetClassCount(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const classCount = parseInt(message.body.trim());
+
+    if (isNaN(classCount) || classCount <= 0 || classCount > 10) {
+        return message.reply(`⚠️ يرجى إدخال رقم صحيح بين 1 و 10.`);
+    }
+    
+    userState.setupData.classCount = classCount;
+    userState.setupData.classes = Array.from({ length: classCount });
+    userState.currentClassIndex = 0; // سنبدأ بالفصل الأول
+    userState.step = 'setup_get_class_names';
+
+    await message.reply(`🏫 جيد، ${classCount} فصول.\n\n*الآن، ما هو اسم الفصل رقم 1؟* (مثال: S1 أو الفصل الأول)`);
+}
+
+/**
+ * @description الخطوة 4: تكرار الحصول على أسماء الفصول والمواد والأفواج
+ */
+async function handleSetupGetClassNames(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex, classCount } = userState.setupData;
+    const className = message.body.trim();
+
+    if (className.length < 2) {
+        return message.reply(`⚠️ اسم الفصل قصير جداً.`);
+    }
+    
+    // تخزين البيانات المؤقتة للفصل الحالي
+    userState.setupData.classes[currentClassIndex] = {
+        className: className,
+        subjects: [],
+        groups: []
+    };
+
+    userState.step = 'setup_get_subjects_for_class';
+    await message.reply(`📚 تم تحديد اسم الفصل: *${className}*\n\n*الآن، أدخل أسماء المواد لهذا الفصل، مفصولة بفاصلة (,)*\nمثال: قانون, اقتصاد, شريعة`);
+}
+
+async function handleSetupGetSubjects(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex } = userState.setupData;
+
+    const subjects = message.body.split(',').map(s => s.trim()).filter(Boolean);
+    if (subjects.length === 0) {
+        return message.reply('⚠️ لم يتم إدخال أي مواد. يرجى إدخال أسماء المواد مفصولة بفاصلة.');
+    }
+    
+    userState.setupData.classes[currentClassIndex].subjects = subjects;
+    userState.step = 'setup_get_groups_and_profs';
+
+    await message.reply(`👍 تم إضافة ${subjects.length} مواد.\n\n*الآن، أدخل الأفواج والأساتذة لهذا الفصل بالصيغة التالية (كل فوج في سطر):*\n`
+        + `*اسم الفوج 1 : اسم الأستاذ 1*\n`
+        + `*اسم الفوج 2 : اسم الأستاذ 2*\n`
+        + `مثال:\nالفوج الأول : أستاذ محمد\nالفوج الثاني : أستاذة فاطمة`
+    );
+}
+
+async function handleSetupGetGroupsAndProfs(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex, classCount } = userState.setupData;
+
+    const lines = message.body.split('\n').filter(Boolean);
+    const groups = [];
+    for (const line of lines) {
+        const parts = line.split(':');
+        if (parts.length === 2) {
+            groups.push({ groupName: parts[0].trim(), professorName: parts[1].trim() });
+        }
+    }
+
+    if (groups.length === 0) {
+        return message.reply(`⚠️ لم يتم إدخال الأفواج بالصيغة الصحيحة. يرجى استخدام الصيغة:\nاسم الفوج : اسم الأستاذ`);
+    }
+
+    userState.setupData.classes[currentClassIndex].groups = groups;
+    
+    // التحقق إذا انتهينا من كل الفصول
+    if (currentClassIndex + 1 < classCount) {
+        userState.setupData.currentClassIndex++;
+        userState.step = 'setup_get_class_names';
+        await message.reply(`✅ تم إعداد الفصل ${currentClassIndex + 1} بنجاح.\n\n*ننتقل للفصل التالي. ما هو اسم الفصل رقم ${currentClassIndex + 2}؟*`);
+    } else {
+        // انتهينا، نعرض الملخص
+        userState.step = 'setup_confirm_and_save';
+        let summary = `🎉 *اكتمل الإعداد! يرجى مراجعة البيانات:*\n\n`
+            + `*الشعبة:* ${userState.setupData.sectionName}\n\n`;
+        
+        userState.setupData.classes.forEach((classData, index) => {
+            summary += `*الفصل ${index + 1}: ${classData.className}*\n`
+                + `  - المواد: ${classData.subjects.join(', ')}\n`
+                + `  - الأفواج والأساتذة:\n`;
+            classData.groups.forEach(g => {
+                summary += `    • ${g.groupName} (الأستاذ: ${g.professorName})\n`;
+            });
+            summary += `\n`;
+        });
+
+        summary += `*هل البيانات صحيحة؟*\nأرسل "نعم" للحفظ أو "إلغاء" للتجاهل.`;
+        await message.reply(summary);
+    }
+}
+
+/**
+ * @description الخطوة الأخيرة: تأكيد وحفظ البيانات في قاعدة البيانات
+ */
+async function handleSetupConfirmAndSave(message) {
+    const authorId = message.author || message.from;
+    const userState = state.userState.get(authorId);
+
+    if (message.body.trim().toLowerCase() === 'نعم') {
+        try {
+            await message.react('🔄');
+            // استدعاء دالة الحفظ في قاعدة البيانات
+            await db.saveSectionSetup(userState.setupData);
+            
+            // إعادة تحميل بيانات المقررات في الذاكرة لتحديثها
+            const coursesData = await db.loadCoursesData();
+            state.sections = coursesData.sections;
+            state.classes = coursesData.classes;
+            // ... (بقية البيانات)
+            
+            await message.reply(`✅ تم حفظ الشعبة "${userState.setupData.sectionName}" وكل تفاصيلها بنجاح في قاعدة البيانات!${SIGNATURE}`);
+        } catch (error) {
+            console.error('[❌] Error saving setup data:', error);
+            await message.reply(`⚠️ حدث خطأ فادح أثناء الحفظ: ${error.message}${SIGNATURE}`);
+        }
+    } else {
+        await message.reply(`تم إلغاء العملية. لم يتم حفظ أي بيانات.${SIGNATURE}`);
+    }
+    state.userState.delete(authorId); // إنهاء الجلسة
+}
+
+module.exports = {
+    handleSetupSelectAction,
+    handleSetupGetSectionName,
+    handleSetupGetClassCount,
+    handleSetupGetClassNames,
+    handleSetupGetSubjects,
+    handleSetupGetGroupsAndProfs,
+    handleSetupConfirmAndSave,
+};
+// commands/setup-handler.js - الإصدار النهائي والمبسط لعملية الإعداد
+
+const { SIGNATURE } = require('../config');
+const state = require('../state');
+const db = require('../database');
+
+// =================================================================
+// 1. الأمر الرئيسي لبدء عملية الإعداد
+// =================================================================
+async function handleSetupCommand(message, client) {
+    const chat = await message.getChat();
+    const authorId = message.from;
+
+    if (chat.isGroup) {
+        return message.reply(`⚠️ يفضل استخدام هذا الأمر في الخاص معي لتجنب إزعاج أعضاء المجموعة.${SIGNATURE}`);
+    }
+
+    if (!state.admins.has(authorId)) {
+        return message.reply(`⚠️ هذا الأمر متاح لمطوري البوت فقط! (المعرف ${authorId} غير مسجل).${SIGNATURE}`);
+    }
+
+    await message.react('🔧');
+    const contact = await message.getContact();
+    const senderName = contact.pushname || "المشرف";
+
+    const replyText = `
+🔧 *إعداد وتكوين شعبة جديدة*
+
+مرحباً ${senderName}! 🙋‍♂️
+سنقوم الآن بتكوين شعبة دراسية جديدة خطوة بخطوة.
+
+📝 *ما هو اسم الشعبة التي تريد إضافتها؟* (مثال: شعبة القانون)`;
+
+    await message.reply(replyText);
+    state.userState.set(authorId, {
+        step: 'setup_get_section_name',
+        timestamp: Date.now(),
+        setupData: { sectionName: '', classes: [] }
+    });
+}
+
+// =================================================================
+// 2. دوال معالجة كل خطوة في المحادثة
+// =================================================================
+
+async function handleSetupGetSectionName(message) {
+    const authorId = message.from;
+    const userState = state.userState.get(authorId);
+    const sectionName = message.body.trim();
+
+    if (sectionName.length < 3) return message.reply(`⚠️ اسم الشعبة قصير جداً.`);
+
+    userState.setupData.sectionName = sectionName;
+    userState.currentClassIndex = 0; // سنبدأ بإعداد الفصل الأول
+    userState.step = 'setup_get_class_name';
+    await message.reply(`👍 الشعبة: *${sectionName}*\n\n*الآن، لنبدأ بالفصل الأول.*\n*ما هو اسم الفصل رقم 1؟* (مثال: S1 أو الفصل الأول)`);
+}
+
+async function handleSetupGetClassName(message) {
+    const authorId = message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex } = userState;
+    const className = message.body.trim();
+
+    if (className.length < 2) return message.reply(`⚠️ اسم الفصل قصير جداً.`);
+    
+    // تهيئة بيانات الفصل الحالي
+    userState.setupData.classes[currentClassIndex] = { className, subjects: [], groups: [] };
+    userState.step = 'setup_get_subjects_for_class';
+    await message.reply(`📚 الفصل: *${className}*\n\n*الآن، أدخل أسماء المواد لهذا الفصل، مفصولة بفاصلة (,)*`);
+}
+
+async function handleSetupGetSubjects(message) {
+    const authorId = message.from;
+    const userState = state.userState.get(authorId);
+    const { currentClassIndex } = userState;
+
+    const subjects = message.body.split(',').map(s => s.trim()).filter(Boolean);
+    if (subjects.length === 0) return message.reply('⚠️ لم يتم إدخال أي مواد.');
+
+    userState.setupData.classes[currentClassIndex].subjects = subjects;
+    userState.step = 'setup_get_groups_and_profs';
+    await message.reply(`👍 تم إضافة ${subjects.length} مواد.\n\n*الآن، أدخل الأفواج والأساتذة لهذا الفصل بالصيغة التالية (كل فوج في سطر):*\n*اسم الفوج : اسم الأستاذ*`);
+}
+
+async function handleSetupGetGroupsAndProfs(message) {
+    const authorId = message.from;
+    const userState = state.userState.get(authorId);
+    const { setupData } = userState;
+    let { currentClassIndex } = userState;
+
+    const lines = message.body.split('\n').filter(Boolean);
+    const groups = [];
+    for (const line of lines) {
+        const parts = line.split(':');
+        if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+            groups.push({ groupName: parts[0].trim(), professorName: parts[1].trim() });
+        }
+    }
+
+    if (groups.length === 0) return message.reply(`⚠️ لم يتم إدخال الأفواج بالصيغة الصحيحة.`);
+
+    setupData.classes[currentClassIndex].groups = groups;
+
+    await message.reply(`✅ تم إكمال إعداد الفصل: *${setupData.classes[currentClassIndex].className}*.\n\n*هل تريد إضافة فصل آخر؟* (أرسل "نعم" أو "لا")`);
+    userState.step = 'setup_ask_for_another_class';
+}
+
+async function handleAskForAnotherClass(message) {
+    const authorId = message.from;
+    const userState = state.userState.get(authorId);
+    const choice = message.body.trim().toLowerCase();
+
+    if (choice === 'نعم') {
+        userState.currentClassIndex++;
+        userState.step = 'setup_get_class_name';
+        await message.reply(`*ما هو اسم الفصل رقم ${userState.currentClassIndex + 1}؟*`);
+    } else if (choice === 'لا') {
+        userState.step = 'setup_confirm_and_save';
+        let summary = `🎉 *اكتمل الإعداد! يرجى مراجعة البيانات:*\n\n*الشعبة:* ${userState.setupData.sectionName}\n\n`;
+        userState.setupData.classes.forEach((classData, index) => {
+            if (classData) {
+                summary += `*الفصل ${index + 1}: ${classData.className}*\n`
+                    + `  - المواد: ${classData.subjects.join(', ')}\n`
+                    + `  - الأفواج والأساتذة:\n`;
+                classData.groups.forEach(g => {
+                    summary += `    • ${g.groupName} (الأستاذ: ${g.professorName})\n`;
+                });
+                summary += `\n`;
+            }
+        });
+        summary += `*هل البيانات صحيحة؟*\nأرسل "نعم" للحفظ أو "إلغاء" للتجاهل.`;
+        await message.reply(summary);
+    } else {
+        await message.reply(`⚠️ يرجى الرد بـ "نعم" أو "لا".`);
+    }
+}
+
+async function handleSetupConfirmAndSave(message) {
+    const authorId = message.from;
+    const userState = state.userState.get(authorId);
+
+    if (message.body.trim().toLowerCase() === 'نعم') {
+        try {
+            await message.react('🔄');
+            await db.saveSectionSetup(userState.setupData); // حفظ البيانات في قاعدة البيانات
+            
+            // إعادة تحميل البيانات في الذاكرة لتحديثها
+            const coursesData = await db.loadCoursesData();
+            state.sections = coursesData.sections;
+            state.classes = coursesData.classes;
+            state.subjects = coursesData.subjects;
+            state.groupsData = coursesData.groups;
+            state.professors = coursesData.professors;
+
+            await message.reply(`✅ تم حفظ الشعبة "${userState.setupData.sectionName}" وكل تفاصيلها بنجاح!${SIGNATURE}`);
+        } catch (error) {
+            console.error('[❌] Error saving setup data:', error);
+            await message.reply(`⚠️ حدث خطأ فادح أثناء الحفظ: ${error.message}${SIGNATURE}`);
+        }
+    } else {
+        await message.reply(`تم إلغاء العملية. لم يتم حفظ أي بيانات.${SIGNATURE}`);
+    }
+    state.userState.delete(authorId);
+}
+
+module.exports = {
+    '!إعداد': handleSetupCommand,
+    '!setup': handleSetupCommand,
+    handleSetupSelectAction,
+    handleSetupGetSectionName,
+    handleSetupGetClassName,
+    handleSetupGetSubjects,
+    handleSetupGetGroupsAndProfs,
+    handleAskForAnotherClass,
+    handleSetupConfirmAndSave,
+};
+# ====================================================
+#      ملف متغيرات البيئة لتشغيل البوت محلياً
+# ====================================================
+
+# --- معرف المالك (استبدل الرقم برقمك مع رمز الدولة) ---
+OWNER_ID="212621957775@c.us"
+
+# --- توقيع البوت (يمكنك تغييره) ---
+SIGNATURE="\n\n🤖 بواسطة بوت المطور"
+
+# --- إعدادات قاعدة البيانات (Supabase) ---
+# (استبدل [YOUR-PASSWORD] بكلمة المرور الحقيقية لقاعدة بياناتك)
+DATABASE_URL="postgresql://postgres.aqvgvgaetoqktvhhvfhp:irizi2025***@aws-1-us-east-1.pooler.supabase.com:6543/postgres"
+
+# --- إعدادات تخزين الملفات (GitHub) ---
+# (التوكن الذي نسخته من إعدادات حسابك في GitHub)
+GITHUB_TOKEN="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"
+
+# (اسم مستخدمك على GitHub)
+GITHUB_OWNER="irizi1"
+
+# (اسم المستودع الذي أنشأته لتخزين المحاضرات)
+GITHUB_REPO="boot"
+
+# --- (اختياري) مفتاح API للذكاء الاصطناعي ---
+# AI_API_KEY="sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+# --- (اختياري) وضع التصحيح ---
+# (اجعلها 'true' لإظهار تفاصيل الأخطاء أثناء التطوير)
+DEBUG_MODE="false"
+

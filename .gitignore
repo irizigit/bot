@@ -1,0 +1,14 @@
+node_modules/
+*.log
+.env
+session/
+*.zip
+*.tar.gz
+# تجاهل مجلد الاعتماديات
+node_modules/
+
+# تجاهل ملف الإعدادات الذي يحتوي على كلمات المرور
+.env
+
+# تجاهل ملفات جلسة الواتساب
+.wwebjs_auth/

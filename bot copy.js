@@ -1,0 +1,2813 @@
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+const cron = require('node-cron');
+const fs = require('fs');
+const path = require('path');
+const fetch = require('node-fetch');
+const PdfPrinter = require('pdfmake');
+const sqlite3 = require('sqlite3').verbose();
+
+const client = new Client({ 
+    authStrategy: new LocalAuth({ clientId: "whatsapp-bot" }),
+    puppeteer: {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu'
+        ]
+    }
+});
+
+// Bot state and data
+const userState = new Map();
+const groupsMetadata = new Map();
+const admins = new Set(['212715104027@c.us']); // أضف معرفك هنا إذا لزم الأمر
+const lectureStats = new Map();
+const joinStats = new Map();
+const leaveStats = new Map();
+const messageStats = new Map();
+
+// New data structures
+const sections = new Map(); // الشعب
+const classes = new Map(); // الفصول
+const groupsData = new Map(); // الأفواج
+const professors = new Map(); // الأساتذة
+const subjects = new Map(); // المواد
+
+let groupId = null;
+let requestCount = 0;
+let isBotReady = false;
+const PDF_ARCHIVE_GROUP = '120363403563982270@g.us';
+const IMAGES_ARCHIVE_GROUP = '120363400468776166@g.us';
+const OWNER_ID = '212621957775@c.us';
+const PROTECTION_PASSWORD = process.env.BOT_PASSWORD || 'your_secure_password';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY';
+
+let lecturesMetadata = [];
+const lecturesDir = './lectures/';
+
+if (!fs.existsSync(lecturesDir)) {
+    fs.mkdirSync(lecturesDir);
+}
+
+// إعداد قاعدة البيانات
+const db = new sqlite3.Database('./database.db', (err) => {
+    if (err) {
+        console.error('[❌] Error opening database:', err.message);
+    } else {
+        console.log('[✅] Connected to SQLite database');
+        initializeDatabase();
+    }
+});
+
+// إنشاء الجداول في قاعدة البيانات
+function initializeDatabase() {
+    // جدول المحاضرات
+    db.run(`CREATE TABLE IF NOT EXISTS lectures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        subjectId TEXT NOT NULL,
+        lectureNumber TEXT NOT NULL,
+        professor TEXT NOT NULL,
+        professorId TEXT NOT NULL,
+        groupNumber TEXT NOT NULL,
+        groupId TEXT NOT NULL,
+        className TEXT NOT NULL,
+        classId TEXT NOT NULL,
+        sectionName TEXT NOT NULL,
+        sectionId TEXT NOT NULL,
+        date TEXT NOT NULL,
+        addedBy TEXT NOT NULL,
+        fileName TEXT NOT NULL
+    )`);
+
+    // جدول الإحصائيات
+    db.run(`CREATE TABLE IF NOT EXISTS stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        groupId TEXT NOT NULL,
+        userId TEXT,
+        type TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        data TEXT
+    )`);
+
+    // جدول القائمة السوداء
+    db.run(`CREATE TABLE IF NOT EXISTS blacklist (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId TEXT NOT NULL UNIQUE,
+        timestamp INTEGER NOT NULL
+    )`);
+
+    // جدول الشعب
+    db.run(`CREATE TABLE IF NOT EXISTS sections (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+    )`);
+
+    // جدول الفصول
+    db.run(`CREATE TABLE IF NOT EXISTS classes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+    )`);
+
+    // جدول الأفواج
+    db.run(`CREATE TABLE IF NOT EXISTS groups (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+    )`);
+
+    // جدول الأساتذة
+    db.run(`CREATE TABLE IF NOT EXISTS professors (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+    )`);
+
+    // جدول المواد
+    db.run(`CREATE TABLE IF NOT EXISTS subjects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL
+    )`);
+
+    console.log('[✅] Database tables initialized');
+}
+
+// تعديل دوال التحميل للعمل مع SQLite
+function loadLectures() {
+    return new Promise((resolve, reject) => {
+        db.all("SELECT * FROM lectures", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading lectures:', err);
+                lecturesMetadata = [];
+                reject(err);
+            } else {
+                lecturesMetadata = rows;
+                console.log(`[📂] Loaded ${lecturesMetadata.length} lectures`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadStats() {
+    return new Promise((resolve, reject) => {
+        // مسح الخرائط الحالية
+        joinStats.clear();
+        leaveStats.clear();
+        messageStats.clear();
+        lectureStats.clear();
+        
+        db.all("SELECT * FROM stats", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading stats:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    const data = row.data ? JSON.parse(row.data) : {};
+                    
+                    if (row.type === 'join') {
+                        if (!joinStats.has(row.groupId)) {
+                            joinStats.set(row.groupId, []);
+                        }
+                        joinStats.get(row.groupId).push({
+                            userId: row.userId,
+                            timestamp: row.timestamp
+                        });
+                    } else if (row.type === 'leave') {
+                        if (!leaveStats.has(row.groupId)) {
+                            leaveStats.set(row.groupId, []);
+                        }
+                        leaveStats.get(row.groupId).push({
+                            userId: row.userId,
+                            timestamp: row.timestamp,
+                            reason: data.reason || 'left'
+                        });
+                    } else if (row.type === 'message') {
+                        if (!messageStats.has(row.groupId)) {
+                            messageStats.set(row.groupId, []);
+                        }
+                        messageStats.get(row.groupId).push({
+                            userId: row.userId,
+                            timestamp: row.timestamp,
+                            count: data.count || 1
+                        });
+                    } else if (row.type === 'lecture') {
+                        if (!lectureStats.has(row.userId)) {
+                            lectureStats.set(row.userId, []);
+                        }
+                        lectureStats.get(row.userId).push({
+                            name: data.name,
+                            timestamp: row.timestamp
+                        });
+                    }
+                });
+                
+                console.log(`[📊] Loaded stats`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadBlacklist() {
+    return new Promise((resolve, reject) => {
+        blacklist.clear();
+        
+        db.all("SELECT userId FROM blacklist", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading blacklist:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    blacklist.add(row.userId);
+                });
+                console.log(`[📛] Loaded ${blacklist.size} blacklisted numbers`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadSections() {
+    return new Promise((resolve, reject) => {
+        sections.clear();
+        
+        db.all("SELECT id, name FROM sections", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading sections:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    sections.set(row.id, row.name);
+                });
+                console.log(`[📂] Loaded ${sections.size} sections`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadClasses() {
+    return new Promise((resolve, reject) => {
+        classes.clear();
+        
+        db.all("SELECT id, name FROM classes", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading classes:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    classes.set(row.id, row.name);
+                });
+                console.log(`[📂] Loaded ${classes.size} classes`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadGroups() {
+    return new Promise((resolve, reject) => {
+        groupsData.clear();
+        
+        db.all("SELECT id, name FROM groups", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading groups:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    groupsData.set(row.id, row.name);
+                });
+                console.log(`[📂] Loaded ${groupsData.size} groups`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadProfessors() {
+    return new Promise((resolve, reject) => {
+        professors.clear();
+        
+        db.all("SELECT id, name FROM professors", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading professors:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    professors.set(row.id, row.name);
+                });
+                console.log(`[📂] Loaded ${professors.size} professors`);
+                resolve();
+            }
+        });
+    });
+}
+
+function loadSubjects() {
+    return new Promise((resolve, reject) => {
+        subjects.clear();
+        
+        db.all("SELECT id, name FROM subjects", [], (err, rows) => {
+            if (err) {
+                console.error('[❌] Error loading subjects:', err);
+                reject(err);
+            } else {
+                rows.forEach(row => {
+                    subjects.set(row.id, row.name);
+                });
+                console.log(`[📂] Loaded ${subjects.size} subjects`);
+                resolve();
+            }
+        });
+    });
+}
+
+// تعديل دوال الحفظ للعمل مع SQLite
+function saveLectures() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM lectures", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing lectures table:', err);
+                reject(err);
+                return;
+            }
+            
+            // إدخال البيانات الجديدة
+            const stmt = db.prepare("INSERT INTO lectures (type, subject, subjectId, lectureNumber, professor, professorId, groupNumber, groupId, className, classId, sectionName, sectionId, date, addedBy, fileName) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            
+            for (const lecture of lecturesMetadata) {
+                stmt.run(
+                    lecture.type,
+                    lecture.subject,
+                    lecture.subjectId,
+                    lecture.lectureNumber,
+                    lecture.professor,
+                    lecture.professorId,
+                    lecture.groupNumber,
+                    lecture.groupId,
+                    lecture.className,
+                    lecture.classId,
+                    lecture.sectionName,
+                    lecture.sectionId,
+                    lecture.date,
+                    lecture.addedBy,
+                    lecture.fileName
+                );
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving lectures:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved lectures');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveStats() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM stats", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing stats table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO stats (groupId, userId, type, timestamp, data) VALUES (?, ?, ?, ?, ?)");
+            
+            // حفظ إحصائيات الانضمام
+            for (const [groupId, joins] of joinStats) {
+                for (const join of joins) {
+                    stmt.run(
+                        groupId,
+                        join.userId,
+                        'join',
+                        join.timestamp,
+                        null
+                    );
+                }
+            }
+            
+            // حفظ إحصائيات المغادرة
+            for (const [groupId, leaves] of leaveStats) {
+                for (const leave of leaves) {
+                    stmt.run(
+                        groupId,
+                        leave.userId,
+                        'leave',
+                        leave.timestamp,
+                        JSON.stringify({ reason: leave.reason })
+                    );
+                }
+            }
+            
+            // حفظ إحصائيات الرسائل
+            for (const [groupId, messages] of messageStats) {
+                for (const message of messages) {
+                    stmt.run(
+                        groupId,
+                        message.userId,
+                        'message',
+                        message.timestamp,
+                        JSON.stringify({ count: message.count })
+                    );
+                }
+            }
+            
+            // حفظ إحصائيات المحاضرات
+            for (const [userId, lectures] of lectureStats) {
+                for (const lecture of lectures) {
+                    stmt.run(
+                        null, // groupId
+                        userId,
+                        'lecture',
+                        lecture.timestamp,
+                        JSON.stringify({ name: lecture.name })
+                    );
+                }
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving stats:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved stats');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveBlacklist() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM blacklist", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing blacklist table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO blacklist (userId, timestamp) VALUES (?, ?)");
+            
+            for (const userId of blacklist) {
+                stmt.run(userId, Date.now());
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving blacklist:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved blacklist');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveSections() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM sections", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing sections table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO sections (id, name) VALUES (?, ?)");
+            
+            for (const [id, name] of sections) {
+                stmt.run(id, name);
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving sections:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved sections');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveClasses() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM classes", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing classes table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO classes (id, name) VALUES (?, ?)");
+            
+            for (const [id, name] of classes) {
+                stmt.run(id, name);
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving classes:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved classes');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveGroups() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM groups", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing groups table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO groups (id, name) VALUES (?, ?)");
+            
+            for (const [id, name] of groupsData) {
+                stmt.run(id, name);
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving groups:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved groups');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveProfessors() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM professors", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing professors table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO professors (id, name) VALUES (?, ?)");
+            
+            for (const [id, name] of professors) {
+                stmt.run(id, name);
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving professors:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved professors');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+function saveSubjects() {
+    return new Promise((resolve, reject) => {
+        // مسح الجدول أولاً
+        db.run("DELETE FROM subjects", (err) => {
+            if (err) {
+                console.error('[❌] Error clearing subjects table:', err);
+                reject(err);
+                return;
+            }
+            
+            const stmt = db.prepare("INSERT INTO subjects (id, name) VALUES (?, ?)");
+            
+            for (const [id, name] of subjects) {
+                stmt.run(id, name);
+            }
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('[❌] Error saving subjects:', err);
+                    reject(err);
+                } else {
+                    console.log('[💾] Saved subjects');
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+// تحميل جميع البيانات عند بدء التشغيل
+async function loadAllData() {
+    try {
+        await loadLectures();
+        await loadStats();
+        await loadBlacklist();
+        await loadSections();
+        await loadClasses();
+        await loadGroups();
+        await loadProfessors();
+        await loadSubjects();
+        console.log('[✅] All data loaded successfully');
+    } catch (error) {
+        console.error('[❌] Error loading data:', error);
+    }
+}
+
+// استدعاء دالة تحميل جميع البيانات
+loadAllData();
+
+const signature = "\n👨‍💻 *dev by: IRIZI 😊*";
+
+// دالة للتواصل مع Gemini API
+async function askGemini(prompt, context = '') {
+    try {
+        const fullPrompt = context ? `${context}\n\nالسؤال: ${prompt}` : prompt;
+        
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    contents: [
+                        {
+                            parts: [
+                                {
+                                    text: fullPrompt
+                                }
+                            ]
+                        }
+                    ]
+                })
+            }
+        );
+
+        const data = await response.json();
+
+        if (data && data.candidates && data.candidates.length > 0) {
+            const text = data.candidates[0].content.parts[0].text;
+            return text;
+        } else {
+            return "عذراً، لم أتمكن من الحصول على إجابة من الذكاء الاصطناعي.";
+        }
+    } catch (error) {
+        console.error('[❌] Error calling Gemini API:', error);
+        return "حدث خطأ أثناء الاتصال بالذكاء الاصطناعي.";
+    }
+}
+
+// دالة لتحليل نية المستخدم باستخدام Gemini
+async function analyzeUserIntent(message, senderName, isGroup, groupName = '') {
+    try {
+        const context = `
+أنت مساعد ذكاء اصطناعي لبوت WhatsApp. مهمتك هي تحليل نية المستخدم من رسالته والرد بشكل مناسب.
+
+المعلومات المتاحة:
+- اسم المرسل: ${senderName}
+- الرسالة من مجموعة: ${isGroup ? 'نعم' : 'لا'}
+${isGroup ? `- اسم المجموعة: ${groupName}` : ''}
+- الرسالة: ${message}
+
+الرد يجب أن يكون بتنسيق JSON يحتوي على:
+{
+  "intent": "النية (مثل: سؤال، شكوى، طلب مساعدة، إلخ)",
+  "response": "الرد المناسب للمستخدم",
+  "action": "إجراء يجب على البوت اتخاذه (مثل: none, notify_admin, add_to_blacklist, إلخ)",
+  "confidence": "مستوى الثقة (من 0 إلى 1)"
+}
+`;
+
+        const aiResponse = await askGemini(`حلل نية المستخدم من هذه الرسالة ورد بشكل مناسب.`, context);
+        
+        try {
+            return JSON.parse(aiResponse);
+        } catch (parseError) {
+            console.error('[❌] Error parsing AI response:', parseError);
+            return {
+                intent: "unknown",
+                response: "عذراً، لم أفهم رسالتك. هل يمكنك توضيح ما تحتاجه؟",
+                action: "none",
+                confidence: 0.2
+            };
+        }
+    } catch (error) {
+        console.error('[❌] Error analyzing user intent:', error);
+        return {
+            intent: "unknown",
+            response: "حدث خطأ أثناء معالجة رسالتك. يرجى المحاولة مرة أخرى لاحقاً.",
+            action: "none",
+            confidence: 0.1
+        };
+    }
+}
+
+// دالة لإنشاء رسائل ترحيب مخصصة باستخدام الذكاء الاصطناعي
+async function generateWelcomeMessage(userName, groupName) {
+    try {
+        const context = `
+أنت مساعد ذكاء اصطناعي لبوت WhatsApp. مهمتك هي إنشاء رسالة ترحيب دافئة وودية لعضو جديد في المجموعة.
+
+المعلومات المتاحة:
+- اسم العضو الجديد: ${userName}
+- اسم المجموعة: ${groupName}
+
+الرد يجب أن يكون رسالة ترحيب قصيرة ودافئة، لا تزيد عن 3 أسطر.
+`;
+
+        const aiResponse = await askGemini(`أنشئ رسالة ترحيب للعضو الجديد.`, context);
+        return aiResponse;
+    } catch (error) {
+        console.error('[❌] Error generating welcome message:', error);
+        return `مرحباً ${userName} في مجموعة ${groupName}! 🎉`;
+    }
+}
+
+// دالة للتحقق من وجود الخطوط
+function checkFonts() {
+    const fontsDir = path.join(__dirname, 'fonts');
+    const regularFont = path.join(fontsDir, 'Amiri-Regular.ttf');
+    const boldFont = path.join(fontsDir, 'Amiri-Bold.ttf');
+    
+    if (!fs.existsSync(fontsDir)) {
+        console.log('[❌] Fonts directory not found. Creating...');
+        fs.mkdirSync(fontsDir);
+        return false;
+    }
+    
+    if (!fs.existsSync(regularFont)) {
+        console.log('[❌] Amiri-Regular.ttf not found in fonts directory');
+        return false;
+    }
+    
+    if (!fs.existsSync(boldFont)) {
+        console.log('[❌] Amiri-Bold.ttf not found in fonts directory');
+        return false;
+    }
+    
+    console.log('[✅] All fonts are available');
+    return true;
+}
+
+// دالة لإنشاء جدول المحاضرات كملف PDF باستخدام pdfmake
+async function generateLecturesTablePDF(lecturesData) {
+    return new Promise((resolve, reject) => {
+        try {
+            console.log('[📊] Starting PDF generation...');
+            console.log(`[📊] Number of lectures: ${lecturesData.length}`);
+            
+            // التحقق من وجود الخطوط
+            if (!checkFonts()) {
+                reject(new Error('الخطوط المطلوبة غير موجودة. يرجى التأكد من وجود ملفات Amiri-Regular.ttf و Amiri-Bold.ttf في مجلد fonts'));
+                return;
+            }
+
+            // تعريف الخطوط
+            const fonts = {
+                Amiri: {
+                    normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'),
+                    bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf'),
+                }
+            };
+
+            console.log('[📊] Creating PDF printer...');
+            const printer = new PdfPrinter(fonts);
+
+            // إعداد الجدول
+            console.log('[📊] Preparing table data...');
+            const body = [
+                [
+                    { text: 'التسلسل', bold: true },
+                    { text: 'المادة', bold: true },
+                    { text: 'رقم المحاضرة', bold: true },
+                    { text: 'الأستاذ', bold: true },
+                    { text: 'الفوج', bold: true },
+                    { text: 'التاريخ', bold: true }
+                ]
+            ];
+
+            lecturesData.forEach((lecture, index) => {
+                const date = lecture.date
+                    ? new Date(lecture.date).toLocaleDateString('ar-EG')
+                    : 'غير محدد';
+
+                body.push([
+                    (index + 1).toString(),
+                    lecture.subject || '',
+                    lecture.lectureNumber || '',
+                    lecture.professor || '',
+                    lecture.groupNumber || '',
+                    date
+                ]);
+            });
+
+            console.log('[📊] Creating document definition...');
+            const docDefinition = {
+                defaultStyle: {
+                    font: 'Amiri',
+                    alignment: 'right', // محاذاة عربية
+                    fontSize: 12
+                },
+                content: [
+                    { text: 'جدول المحاضرات', style: 'header' },
+                    { text: `تاريخ الإنشاء: ${new Date().toLocaleDateString('ar-EG')}`, alignment: 'left' },
+                    {
+                        table: {
+                            headerRows: 1,
+                            widths: ['auto', '*', 'auto', '*', 'auto', 'auto'],
+                            body
+                        },
+                        layout: 'lightHorizontalLines'
+                    },
+                    { text: `إجمالي المحاضرات: ${lecturesData.length}`, margin: [0, 10, 0, 0] },
+                    { text: 'تم إنشاء هذا الجدول باستخدام الذكاء الاصطناعي', alignment: 'center', fontSize: 10, color: 'gray' }
+                ],
+                styles: {
+                    header: {
+                        fontSize: 18,
+                        bold: true,
+                        alignment: 'center',
+                        margin: [0, 0, 0, 10]
+                    }
+                },
+                pageOrientation: 'landscape',
+                pageSize: 'A4'
+            };
+
+            console.log('[📊] Creating PDF document...');
+            const pdfDoc = printer.createPdfKitDocument(docDefinition);
+
+            const chunks = [];
+            pdfDoc.on('data', chunk => {
+                chunks.push(chunk);
+                console.log(`[📊] Received chunk: ${chunk.length} bytes`);
+            });
+            
+            pdfDoc.on('end', () => {
+                console.log('[📊] PDF generation completed');
+                const buffer = Buffer.concat(chunks);
+                console.log(`[📊] Final PDF size: ${buffer.length} bytes`);
+                resolve(buffer);
+            });
+            
+            pdfDoc.on('error', (error) => {
+                console.error('[❌] PDF generation error:', error);
+                reject(error);
+            });
+            
+            pdfDoc.end();
+
+        } catch (error) {
+            console.error('[❌] Error in generateLecturesTablePDF:', error);
+            reject(error);
+        }
+    });
+}
+
+// Utility functions
+async function notifyAllGroups(messageText) {
+    if (!isBotReady) return;
+    
+    try {
+        const chats = await client.getChats();
+        const groups = chats.filter(chat => chat.isGroup);
+        for (const group of groups) {
+            if (await isBotAdmin(group.id._serialized)) {
+                await client.sendMessage(group.id._serialized, messageText + signature);
+                console.log(`[📢] Sent to group: ${group.id._serialized}`);
+            }
+        }
+    } catch (error) {
+        console.error('[❌] Error notifying groups:', error);
+    }
+}
+
+async function notifyAdmins(groupId, text) {
+    if (!isBotReady) return;
+    
+    try {
+        const chat = await client.getChatById(groupId);
+        const admins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
+        for (const admin of admins) {
+            await client.sendMessage(admin.id._serialized, `📢 *Admin Notification*\n${text}${signature}`);
+        }
+    } catch (error) {
+        console.error('[❌] Error notifying admins:', error);
+    }
+}
+
+// دالة محسنة للتحقق من صلاحيات المشرف
+async function isAdmin(userId, groupId) {
+    if (!isBotReady) {
+        console.log('[⚠️] Bot not ready, returning false for admin check');
+        return false;
+    }
+    
+    try {
+        console.log(`[🔍] Checking admin status for user ${userId} in group ${groupId}`);
+        
+        // Owner is always admin
+        if (userId === OWNER_ID) {
+            console.log('[✅] User is owner, has admin rights');
+            return true;
+        }
+        
+        // Check if user is in admins list
+        if (admins.has(userId)) {
+            console.log('[✅] User is in admins list');
+            return true;
+        }
+        
+        // For private chats, no admin check needed
+        if (!groupId || !groupId.includes('@g.us')) {
+            console.log('[ℹ️] Private chat, no admin check needed');
+            return true;
+        }
+        
+        const chat = await client.getChatById(groupId);
+        if (!chat.isGroup) {
+            console.log('[❌] Chat is not a group');
+            return false;
+        }
+        
+        // Check if user is group admin
+        const groupAdmins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
+        const isAdmin = groupAdmins.some(admin => admin.id._serialized === userId);
+        
+        console.log(`[🔍] Group admins: ${groupAdmins.map(a => a.id._serialized).join(', ')}`);
+        console.log(`[🔍] User is group admin: ${isAdmin}`);
+        
+        return isAdmin;
+    } catch (error) {
+        console.error('[❌] Error checking admin status:', error);
+        return false;
+    }
+}
+
+// دالة محسنة للتحقق من صلاحيات البوت
+async function isBotAdmin(groupId) {
+    if (!isBotReady) {
+        console.log('[⚠️] Bot not ready, returning false for bot admin check');
+        return false;
+    }
+    
+    try {
+        console.log(`[🔍] Checking if bot is admin in group ${groupId}`);
+        
+        const chat = await client.getChatById(groupId);
+        const botId = client.info.wid._serialized;
+        const admins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
+        const isBotAdmin = admins.some(admin => admin.id._serialized === botId);
+        
+        console.log(`[🔍] Bot ID: ${botId}`);
+        console.log(`[🔍] Group admins: ${admins.map(a => a.id._serialized).join(', ')}`);
+        console.log(`[🔍] Bot is admin: ${isBotAdmin}`);
+        
+        return isBotAdmin;
+    } catch (error) {
+        console.error('[❌] Error checking bot admin status:', error);
+        return false;
+    }
+}
+
+async function verifyGroup(groupId, groupName) {
+    if (!isBotReady) return false;
+    
+    try {
+        await client.getChatById(groupId);
+        return true;
+    } catch (error) {
+        console.error(`[❌] Error: Group ${groupName} not found:`, error);
+        return false;
+    }
+}
+
+function formatPhoneNumber(number) {
+    number = number.replace(/\D/g, '');
+    if (!number.startsWith('+')) number = '+' + number;
+    return number;
+}
+
+// Client events with enhanced debugging
+client.on('qr', qr => {
+    console.log('[📸] Scan QR code:');
+    qrcode.generate(qr, { small: true });
+});
+
+client.on('authenticated', () => {
+    console.log('[✅] Authenticated successfully!');
+});
+
+client.on('auth_failure', msg => {
+    console.error('[❌] Authentication failure:', msg);
+    isBotReady = false;
+});
+
+client.on('ready', async () => {
+    console.log('[✅] Client ready!');
+    isBotReady = true;
+    
+    try {
+        const chats = await client.getChats();
+        for (const chat of chats) {
+            if (chat.isGroup) {
+                groupsMetadata.set(chat.id._serialized, chat.name);
+            }
+        }
+        console.log(`[ℹ️] Loaded ${groupsMetadata.size} groups`);
+        
+        // Send test message to owner with delay
+        setTimeout(async () => {
+            try {
+                if (isBotReady) {
+                    await client.sendMessage(OWNER_ID, '✅ البوت يعمل الآن!' + signature);
+                    console.log('[📤] Test message sent to owner');
+                }
+            } catch (error) {
+                console.error('[❌] Error sending test message:', error);
+            }
+        }, 5000); // Wait 5 seconds before sending
+    } catch (error) {
+        console.error('[❌] Error in ready event:', error);
+    }
+});
+
+client.on('disconnected', reason => {
+    console.log('[❌] Client disconnected:', reason);
+    isBotReady = false;
+});
+
+client.on('group_join', async (notification) => {
+    if (!isBotReady) return;
+    
+    const groupId = notification.chatId;
+    const userId = notification.id.participant;
+    console.log(`[📢] User ${userId} joined ${groupId}`);
+    
+    if (blacklist.has(userId)) {
+        if (await isBotAdmin(groupId)) {
+            await client.removeParticipant(groupId, userId);
+            console.log(`[📛] Removed blacklisted user ${userId}`);
+        }
+        return;
+    }
+    
+    joinStats.set(groupId, joinStats.get(groupId) || []);
+    joinStats.get(groupId).push({ userId, timestamp: Date.now() });
+    await saveStats(); // استخدام الدالة المحدثة
+    
+    // Generate AI welcome message
+    try {
+        const contact = await client.getContactById(userId);
+        const userName = contact.pushname || contact.name || "عضو جديد";
+        const groupName = groupsMetadata.get(groupId) || "المجموعة";
+        
+        const welcomeMessage = await generateWelcomeMessage(userName, groupName);
+        await client.sendMessage(groupId, welcomeMessage);
+    } catch (error) {
+        console.error('[❌] Error sending AI welcome message:', error);
+    }
+});
+
+client.on('group_leave', async (notification) => {
+    if (!isBotReady) return;
+    
+    const groupId = notification.chatId;
+    const userId = notification.id.participant;
+    console.log(`[📢] User ${userId} left ${groupId}`);
+    blacklist.add(userId);
+    await saveBlacklist(); // استخدام الدالة المحدثة
+    leaveStats.set(groupId, leaveStats.get(groupId) || []);
+    leaveStats.get(groupId).push({ userId, timestamp: Date.now(), reason: 'left' });
+    await saveStats(); // استخدام الدالة المحدثة
+});
+
+client.on('group_admin_changed', async (notification) => {
+    if (!isBotReady) return;
+    
+    const groupId = notification.chatId;
+    const userId = notification.id.participant;
+    if (notification.type === 'remove' && userId === OWNER_ID) {
+        if (await isBotAdmin(groupId)) {
+            await client.addParticipant(groupId, OWNER_ID);
+            await client.sendMessage(OWNER_ID, `⚠️ You were removed from ${groupId}!\n✅ Re-added you.${signature}`);
+        }
+    }
+});
+
+// Message handler with detailed debugging
+client.on('message_create', async message => {
+    try {
+        if (!isBotReady) {
+            console.log('[⚠️] Bot not ready, ignoring message');
+            return;
+        }
+        
+        console.log('=== NEW MESSAGE ===');
+        console.log('From:', message.from);
+        console.log('Body:', message.body);
+        console.log('Author:', message.author);
+        console.log('Is Group:', message.from.includes('@g.us'));
+        
+        if (!message || !message.from) {
+            console.log('[⚠️] Invalid message, ignoring.');
+            return;
+        }
+
+        // استخلاص معرف المستخدم بشكل صحيح
+        let userId;
+        if (message.from.includes('@g.us')) {
+            // رسالة من مجموعة
+            userId = message.author || message.from;
+        } else {
+            // رسالة خاصة
+            userId = message.from;
+        }
+
+        console.log(`[🔍] Extracted user ID: ${userId}`);
+        console.log(`[🔍] Message from: ${message.from}`);
+        console.log(`[🔍] Message author: ${message.author}`);
+        
+        const contact = await message.getContact();
+        const senderName = contact.pushname || contact.name || "User";
+        const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
+        const isGroupMessage = message.from.includes('@g.us');
+        const currentGroupId = isGroupMessage ? message.from : groupId;
+        const replyTo = isGroupMessage ? currentGroupId : userId;
+        const groupName = isGroupMessage ? (groupsMetadata.get(currentGroupId) || "المجموعة") : "";
+
+        console.log(`[📩] Message from ${senderName} (${userId}): ${content || '[non-text]'}`);
+
+        // Command to check admin status
+        if (content === '!checkadmin' || content === '!تحقق') {
+            await message.react('🔍');
+            
+            const isAdminStatus = await isAdmin(userId, currentGroupId);
+            const botAdminStatus = await isBotAdmin(currentGroupId);
+            
+            await client.sendMessage(replyTo, `
+🔍 *تحقق الصلاحيات*
+
+- معرف المستخدم: ${userId}
+- معرف المجموعة: ${currentGroupId}
+- هل أنت مشرف: ${isAdminStatus ? '✅ نعم' : '❌ لا'}
+- هل البوت مشرف: ${botAdminStatus ? '✅ نعم' : '❌ لا'}
+- حالة البوت: ${isBotReady ? '✅ جاهز' : '❌ ليس جاهزًا'}${signature}
+            `);
+            return;
+        }
+
+        // AI command - ask AI
+        if (content.startsWith('!ask ')) {
+            const question = content.substring(5).trim();
+            if (!question) {
+                await client.sendMessage(replyTo, `⚠️ يرجى كتابة سؤال بعد الأمر !ask${signature}`);
+                return;
+            }
+            
+            await message.react('🤖');
+            await client.sendMessage(replyTo, `🤖 *جاري معالجة سؤالك...*`);
+            
+            try {
+                const aiResponse = await askGemini(question);
+                await client.sendMessage(replyTo, `${aiResponse}${signature}`);
+            } catch (error) {
+                console.error('[❌] Error in AI command:', error);
+                await client.sendMessage(replyTo, `⚠️ حدث خطأ أثناء معالجة سؤالك. يرجى المحاولة مرة أخرى لاحقاً.${signature}`);
+            }
+            return;
+        }
+
+        // AI command - analyze intent
+        if (content === '!analyze' || content === '!تحليل') {
+            if (!isGroupMessage) {
+                await client.sendMessage(replyTo, `⚠️ هذا الأمر يعمل في المجموعات فقط!${signature}`);
+                return;
+            }
+            
+            await message.react('🔍');
+            await client.sendMessage(replyTo, `🔍 *جاري تحليل الرسائل الأخيرة...*`);
+            
+            try {
+                // Get recent messages
+                const chat = await client.getChatById(currentGroupId);
+                const messages = await chat.fetchMessages({ limit: 10 });
+                
+                // Analyze each message
+                for (const msg of messages.reverse()) {
+                    if (msg.body && !msg.body.startsWith('!')) {
+                        const msgContact = await msg.getContact();
+                        const msgSenderName = msgContact.pushname || msgContact.name || "User";
+                        
+                        const analysis = await analyzeUserIntent(msg.body, msgSenderName, true, groupName);
+                        
+                        if (analysis.confidence > 0.7 && analysis.action !== 'none') {
+                            // Take action based on analysis
+                            if (analysis.action === 'notify_admin') {
+                                await notifyAdmins(currentGroupId, `🔍 *تحليل ذكاء اصطناعي*\n\n${msgSenderName}: ${msg.body}\n\nالنية: ${analysis.intent}\nالرد المقترح: ${analysis.response}`);
+                            }
+                        }
+                    }
+                }
+                
+                await client.sendMessage(replyTo, `✅ *اكتمل تحليل الرسائل!*${signature}`);
+            } catch (error) {
+                console.error('[❌] Error in analyze command:', error);
+                await client.sendMessage(replyTo, `⚠️ حدث خطأ أثناء تحليل الرسائل. يرجى المحاولة مرة أخرى لاحقاً.${signature}`);
+            }
+            return;
+        }
+
+        // AI command - generate content
+        if (content.startsWith('!generate ')) {
+            const prompt = content.substring(9).trim();
+            if (!prompt) {
+                await client.sendMessage(replyTo, `⚠️ يرجى كتابة وصف للمحتوى بعد الأمر !generate${signature}`);
+                return;
+            }
+            
+            await message.react('✍️');
+            await client.sendMessage(replyTo, `✍️ *جاري إنشاء المحتوى...*`);
+            
+            try {
+                const aiResponse = await askGemini(`أنشئ محتوى بناءً على الوصف التالي: ${prompt}`);
+                await client.sendMessage(replyTo, `${aiResponse}${signature}`);
+            } catch (error) {
+                console.error('[❌] Error in generate command:', error);
+                await client.sendMessage(replyTo, `⚠️ حدث خطأ أثناء إنشاء المحتوى. يرجى المحاولة مرة أخرى لاحقاً.${signature}`);
+            }
+            return;
+        }
+
+        // Command to generate lectures table PDF
+        if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
+            await message.react('📊');
+            await client.sendMessage(replyTo, `📊 *جاري إنشاء جدول المحاضرات باستخدام pdfmake...*`);
+            
+            try {
+                console.log(`[📊] User requested lectures table. Current lectures count: ${lecturesMetadata.length}`);
+                
+                if (lecturesMetadata.length === 0) {
+                    await client.sendMessage(replyTo, `⚠️ لا توجد محاضرات مضافة بعد!${signature}`);
+                    await message.react('❌');
+                    return;
+                }
+                
+                const pdfBuffer = await generateLecturesTablePDF(lecturesMetadata);
+                
+                // Create Media object from buffer
+                const media = new MessageMedia(
+                    'application/pdf',
+                    pdfBuffer.toString('base64'),
+                    `جدول_المحاضرات_${new Date().toISOString().split('T')[0]}.pdf`
+                );
+                
+                await client.sendMessage(replyTo, media, {
+                    caption: `📊 *جدول المحاضرات*\n\nتم إنشاء الجدول باستخدام pdfmake!\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n📝 عدد المحاضرات: ${lecturesMetadata.length}\n🤖 تم إنشاؤه بواسطة Gemini AI${signature}`
+                });
+                
+                await message.react('✅');
+                console.log('[✅] Lectures table sent successfully');
+            } catch (error) {
+                console.error('[❌] Error generating lectures table:', error);
+                await client.sendMessage(replyTo, `⚠️ حدث خطأ أثناء إنشاء جدول المحاضرات: ${error.message}${signature}`);
+                await message.react('❌');
+            }
+            
+            return;
+        }
+
+        // Pin message command
+        if (isGroupMessage && content === '!تثبيت' && message.hasQuotedMsg) {
+            if (await isAdmin(userId, currentGroupId)) {
+                if (await isBotAdmin(currentGroupId)) {
+                    const quotedMsg = await message.getQuotedMessage();
+                    await quotedMsg.pin();
+                    await client.sendMessage(OWNER_ID, `✅ Pinned message in ${currentGroupId}${signature}`);
+                } else {
+                    await client.sendMessage(OWNER_ID, `⚠️ I'm not an admin in ${currentGroupId}!${signature}`);
+                }
+            }
+            return;
+        }
+
+        // Add PDF command - متاح لجميع أعضاء المجموعة
+        if (content === '!اضافة_pdf' || content === '!add pdf') {
+            if (isGroupMessage) {
+                // التحقق من وجود بيانات
+                if (sections.size === 0 || classes.size === 0 || groupsData.size === 0 || 
+                    professors.size === 0 || subjects.size === 0) {
+                    await message.react('⚠️');
+                    await client.sendMessage(replyTo, `⚠️ لم يتم إعداد بيانات الشعب أو الفصول أو الأفواج أو الأساتذة أو المواد بعد!${signature}`);
+                    return;
+                }
+                
+                await message.react('📄');
+                await client.sendMessage(replyTo, `
+📄 *إضافة ملف PDF*
+مرحباً ${senderName}! 🙋‍♂️
+يرجى اختيار نوع الملف:
+1. محاضرة
+2. ملخص
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+                `);
+                userState.set(userId, { 
+                    step: 'select_pdf_type', 
+                    timestamp: Date.now() 
+                });
+            } else {
+                await message.react('⚠️');
+                await client.sendMessage(replyTo, `⚠️ هذا الأمر يعمل في المجموعات فقط!${signature}`);
+            }
+            return;
+        }
+
+        // Download PDF command - متاح لجميع أعضاء المجموعة
+        if (content === '!تحميل' || content === '!download') {
+            if (isGroupMessage) {
+                // التحقق من وجود بيانات
+                if (sections.size === 0 || classes.size === 0 || groupsData.size === 0 || 
+                    professors.size === 0 || subjects.size === 0) {
+                    await message.react('⚠️');
+                    await client.sendMessage(replyTo, `⚠️ لم يتم إعداد بيانات الشعب أو الفصول أو الأفواج أو الأساتذة أو المواد بعد!${signature}`);
+                    return;
+                }
+                
+                await message.react('📥');
+                await client.sendMessage(replyTo, `
+📥 *تحميل ملف PDF*
+مرحباً ${senderName}! 🙋‍♂️
+يرجى اختيار نوع الملف:
+1. محاضرة
+2. ملخص
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+                `);
+                userState.set(userId, { 
+                    step: 'select_download_type', 
+                    timestamp: Date.now() 
+                });
+            } else {
+                await message.react('⚠️');
+                await client.sendMessage(replyTo, `⚠️ هذا الأمر يعمل في المجموعات فقط!${signature}`);
+            }
+            return;
+        }
+
+        // Course management command
+        if (content === '!المقررات' || content === '!courses') {
+            if (!isGroupMessage) {
+                await client.sendMessage(replyTo, `⚠️ هذا الأمر يعمل في المجموعات فقط!${signature}`);
+                return;
+            }
+            
+            // Check if user is admin
+            if (!(await isAdmin(userId, currentGroupId))) {
+                await client.sendMessage(replyTo, `⚠️ هذا الأمر متوفر للمشرفين فقط!${signature}`);
+                return;
+            }
+            
+            await message.react('📚');
+            await client.sendMessage(replyTo, `
+📚 *إدارة المقررات الدراسية*
+
+مرحباً ${senderName}! 🙋‍♂️
+يرجى اختيار النوع الذي تريد إدارته:
+
+1. إدارة الشعب
+2. إدارة الفصول
+3. إدارة الأفواج
+4. إدارة الأساتذة
+5. إدارة المواد
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+            `);
+            
+            userState.set(userId, { 
+                step: 'select_management_type', 
+                timestamp: Date.now() 
+            });
+            return;
+        }
+
+        // Handle user responses for course management
+        if (userState.has(userId)) {
+            const state = userState.get(userId);
+            const currentTime = Date.now();
+            
+            // Check if state has expired (5 minutes)
+            if (currentTime - state.timestamp > 300000) {
+                userState.delete(userId);
+                await client.sendMessage(replyTo, `⏱️ انتهت الجلسة. يرجى إعادة إرسال الأمر !المقررات${signature}`);
+                return;
+            }
+            
+            // Check for cancellation
+            if (content === 'إلغاء' || content === 'cancel') {
+                userState.delete(userId);
+                await client.sendMessage(replyTo, `✅ تم إلغاء العملية${signature}`);
+                return;
+            }
+            
+            // Handle different steps
+            switch (state.step) {
+                case 'select_management_type':
+                    if (content === '1') { // Sections
+                        await handleSectionsManagement(message, replyTo, senderName, signature, userId, currentGroupId);
+                    } else if (content === '2') { // Classes
+                        await handleClassesManagement(message, replyTo, senderName, signature, userId, currentGroupId);
+                    } else if (content === '3') { // Groups
+                        await handleGroupsManagement(message, replyTo, senderName, signature, userId, currentGroupId);
+                    } else if (content === '4') { // Professors
+                        await handleProfessorsManagement(message, replyTo, senderName, signature, userId, currentGroupId);
+                    } else if (content === '5') { // Subjects
+                        await handleSubjectsManagement(message, replyTo, senderName, signature, userId, currentGroupId);
+                    } else {
+                        await client.sendMessage(replyTo, `⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 5${signature}`);
+                    }
+                    break;
+                    
+                case 'sections_action':
+                    await handleSectionsAction(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'add_section':
+                    await handleAddSection(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_section_select':
+                    await handleEditSectionSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_section':
+                    await handleEditSection(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'delete_section_select':
+                    await handleDeleteSectionSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'classes_action':
+                    await handleClassesAction(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'add_class':
+                    await handleAddClass(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_class_select':
+                    await handleEditClassSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_class':
+                    await handleEditClass(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'delete_class_select':
+                    await handleDeleteClassSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'groups_action':
+                    await handleGroupsAction(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'add_group':
+                    await handleAddGroup(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_group_select':
+                    await handleEditGroupSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_group':
+                    await handleEditGroup(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'delete_group_select':
+                    await handleDeleteGroupSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'professors_action':
+                    await handleProfessorsAction(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'add_professor':
+                    await handleAddProfessor(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_professor_select':
+                    await handleEditProfessorSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_professor':
+                    await handleEditProfessor(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'delete_professor_select':
+                    await handleDeleteProfessorSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'subjects_action':
+                    await handleSubjectsAction(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'add_subject':
+                    await handleAddSubject(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_subject_select':
+                    await handleEditSubjectSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'edit_subject':
+                    await handleEditSubject(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'delete_subject_select':
+                    await handleDeleteSubjectSelect(message, replyTo, senderName, signature, userId, currentGroupId, content);
+                    break;
+                    
+                case 'confirm_delete_section':
+                case 'confirm_delete_class':
+                case 'confirm_delete_group':
+                case 'confirm_delete_professor':
+                case 'confirm_delete_subject':
+                    await handleConfirmDelete(message, replyTo, senderName, signature, userId, currentGroupId, content, state.step);
+                    break;
+            }
+        }
+    } catch (error) {
+        console.error('[❌] Error in message handler:', error);
+    }
+});
+
+// Helper functions for sections management
+async function handleSectionsManagement(message, replyTo, senderName, signature, userId, currentGroupId) {
+    await message.react('📋');
+    
+    let sectionsList = "📋 *قائمة الشعب*\n\n";
+    if (sections.size === 0) {
+        sectionsList += "لا توجد شعب مضافة بعد.";
+    } else {
+        let index = 1;
+        for (const [id, name] of sections) {
+            sectionsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+    }
+    
+    await client.sendMessage(replyTo, `
+${sectionsList}
+
+ماذا تريد أن تفعل؟
+
+1. عرض الشعب
+2. إضافة شعبة جديدة
+3. تعديل شعبة
+4. حذف شعبة
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'sections_action', 
+        timestamp: Date.now() 
+    });
+}
+
+async function handleSectionsAction(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    if (content === '1') { // Display sections
+        let sectionsList = "📋 *قائمة الشعب*\n\n";
+        if (sections.size === 0) {
+            sectionsList += "لا توجد شعب مضافة بعد.";
+        } else {
+            let index = 1;
+            for (const [id, name] of sections) {
+                sectionsList += `${index}. ${name} (ID: ${id})\n`;
+                index++;
+            }
+        }
+        
+        await client.sendMessage(replyTo, `${sectionsList}${signature}`);
+        userState.delete(userId);
+    } else if (content === '2') { // Add section
+        await client.sendMessage(replyTo, `
+📝 *إضافة شعبة جديدة*
+
+يرجى إرسال معلومات الشعبة بالتنسيق التالي:
+اسم الشعبة: [اسم الشعبة]
+معرف الشعبة: [معرف الشعبة]
+
+💡 مثال:
+اسم الشعبة: شعبة العلوم
+معرف الشعبة: sci
+
+💡 أرسل *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'add_section', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '3') { // Edit section
+        if (sections.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد شعب للتعديل${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let sectionsList = "📝 *اختر شعبة للتعديل*\n\n";
+        let index = 1;
+        for (const [id, name] of sections) {
+            sectionsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${sectionsList}
+
+💡 أرسل رقم الشعبة أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'edit_section_select', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '4') { // Delete section
+        if (sections.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد شعب للحذف${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let sectionsList = "🗑️ *اختر شعبة للحذف*\n\n";
+        let index = 1;
+        for (const [id, name] of sections) {
+            sectionsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${sectionsList}
+
+⚠️ تحذير: سيتم حذف الشعبة وجميع البيانات المرتبطة بها!
+
+💡 أرسل رقم الشعبة أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'delete_section_select', 
+            timestamp: Date.now() 
+        });
+    } else {
+        await client.sendMessage(replyTo, `⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4${signature}`);
+    }
+}
+
+async function handleAddSection(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الشعبة:\s*(.+)/i);
+    const idMatch = content.match(/معرف الشعبة:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    
+    if (sections.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الشعبة "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    sections.set(id, name);
+    await saveSections();
+    
+    await client.sendMessage(replyTo, `✅ تمت إضافة الشعبة "${name}" بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleEditSectionSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= sections.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم شعبة صحيح${signature}`);
+        return;
+    }
+    
+    const sectionId = Array.from(sections.keys())[index];
+    const sectionName = sections.get(sectionId);
+    
+    await client.sendMessage(replyTo, `
+📝 *تعديل الشعبة*
+
+الشعبة الحالية: ${sectionName} (ID: ${sectionId})
+
+يرجى إرسال المعلومات الجديدة بالتنسيق التالي:
+اسم الشعبة: [الاسم الجديد]
+معرف الشعبة: [المعرف الجديد]
+
+💡 أرسل *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'edit_section', 
+        timestamp: Date.now(),
+        sectionId: sectionId
+    });
+}
+
+async function handleEditSection(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الشعبة:\s*(.+)/i);
+    const idMatch = content.match(/معرف الشعبة:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    const oldId = userState.get(userId).sectionId;
+    
+    // Check if new ID already exists and it's not the same as the old one
+    if (id !== oldId && sections.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الشعبة "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    // Delete old entry if ID is changing
+    if (id !== oldId) {
+        sections.delete(oldId);
+    }
+    
+    sections.set(id, name);
+    await saveSections();
+    
+    await client.sendMessage(replyTo, `✅ تم تعديل الشعبة بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleDeleteSectionSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= sections.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم شعبة صحيح${signature}`);
+        return;
+    }
+    
+    const sectionId = Array.from(sections.keys())[index];
+    const sectionName = sections.get(sectionId);
+    
+    // Confirm deletion
+    await client.sendMessage(replyTo, `
+⚠️ *تأكيد الحذف*
+
+هل أنت متأكد من حذف الشعبة "${sectionName}"؟
+
+هذا الإجراء لا يمكن التراجع عنه.
+
+💡 أرسل *تأكيد* للحذف أو *إلغاء* للإلغاء${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'confirm_delete_section', 
+        timestamp: Date.now(),
+        sectionId: sectionId,
+        sectionName: sectionName
+    });
+}
+
+// Helper functions for classes management
+async function handleClassesManagement(message, replyTo, senderName, signature, userId, currentGroupId) {
+    await message.react('📋');
+    
+    let classesList = "📋 *قائمة الفصول*\n\n";
+    if (classes.size === 0) {
+        classesList += "لا توجد فصول مضافة بعد.";
+    } else {
+        let index = 1;
+        for (const [id, name] of classes) {
+            classesList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+    }
+    
+    await client.sendMessage(replyTo, `
+${classesList}
+
+ماذا تريد أن تفعل؟
+
+1. عرض الفصول
+2. إضافة فصل جديد
+3. تعديل فصل
+4. حذف فصل
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'classes_action', 
+        timestamp: Date.now() 
+    });
+}
+
+async function handleClassesAction(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    if (content === '1') { // Display classes
+        let classesList = "📋 *قائمة الفصول*\n\n";
+        if (classes.size === 0) {
+            classesList += "لا توجد فصول مضافة بعد.";
+        } else {
+            let index = 1;
+            for (const [id, name] of classes) {
+                classesList += `${index}. ${name} (ID: ${id})\n`;
+                index++;
+            }
+        }
+        
+        await client.sendMessage(replyTo, `${classesList}${signature}`);
+        userState.delete(userId);
+    } else if (content === '2') { // Add class
+        await client.sendMessage(replyTo, `
+📝 *إضافة فصل جديد*
+
+يرجى إرسال معلومات الفصل بالتنسيق التالي:
+اسم الفصل: [اسم الفصل]
+معرف الفصل: [معرف الفصل]
+
+💡 مثال:
+اسم الفصل: الفصل الأول
+معرف الفصل: class1
+
+💡 أرسل *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'add_class', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '3') { // Edit class
+        if (classes.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد فصول للتعديل${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let classesList = "📝 *اختر فصلاً للتعديل*\n\n";
+        let index = 1;
+        for (const [id, name] of classes) {
+            classesList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${classesList}
+
+💡 أرسل رقم الفصل أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'edit_class_select', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '4') { // Delete class
+        if (classes.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد فصول للحذف${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let classesList = "🗑️ *اختر فصلاً للحذف*\n\n";
+        let index = 1;
+        for (const [id, name] of classes) {
+            classesList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${classesList}
+
+⚠️ تحذير: سيتم حذف الفصل وجميع البيانات المرتبطة به!
+
+💡 أرسل رقم الفصل أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'delete_class_select', 
+            timestamp: Date.now() 
+        });
+    } else {
+        await client.sendMessage(replyTo, `⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4${signature}`);
+    }
+}
+
+async function handleAddClass(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الفصل:\s*(.+)/i);
+    const idMatch = content.match(/معرف الفصل:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    
+    if (classes.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الفصل "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    classes.set(id, name);
+    await saveClasses();
+    
+    await client.sendMessage(replyTo, `✅ تمت إضافة الفصل "${name}" بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleEditClassSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= classes.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم فصل صحيح${signature}`);
+        return;
+    }
+    
+    const classId = Array.from(classes.keys())[index];
+    const className = classes.get(classId);
+    
+    await client.sendMessage(replyTo, `
+📝 *تعديل الفصل*
+
+الفصل الحالي: ${className} (ID: ${classId})
+
+يرجى إرسال المعلومات الجديدة بالتنسيق التالي:
+اسم الفصل: [الاسم الجديد]
+معرف الفصل: [المعرف الجديد]
+
+💡 أرسل *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'edit_class', 
+        timestamp: Date.now(),
+        classId: classId
+    });
+}
+
+async function handleEditClass(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الفصل:\s*(.+)/i);
+    const idMatch = content.match(/معرف الفصل:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    const oldId = userState.get(userId).classId;
+    
+    // Check if new ID already exists and it's not the same as the old one
+    if (id !== oldId && classes.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الفصل "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    // Delete old entry if ID is changing
+    if (id !== oldId) {
+        classes.delete(oldId);
+    }
+    
+    classes.set(id, name);
+    await saveClasses();
+    
+    await client.sendMessage(replyTo, `✅ تم تعديل الفصل بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleDeleteClassSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= classes.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم فصل صحيح${signature}`);
+        return;
+    }
+    
+    const classId = Array.from(classes.keys())[index];
+    const className = classes.get(classId);
+    
+    // Confirm deletion
+    await client.sendMessage(replyTo, `
+⚠️ *تأكيد الحذف*
+
+هل أنت متأكد من حذف الفصل "${className}"؟
+
+هذا الإجراء لا يمكن التراجع عنه.
+
+💡 أرسل *تأكيد* للحذف أو *إلغاء* للإلغاء${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'confirm_delete_class', 
+        timestamp: Date.now(),
+        classId: classId,
+        className: className
+    });
+}
+
+// Helper functions for groups management
+async function handleGroupsManagement(message, replyTo, senderName, signature, userId, currentGroupId) {
+    await message.react('📋');
+    
+    let groupsList = "📋 *قائمة الأفواج*\n\n";
+    if (groupsData.size === 0) {
+        groupsList += "لا توجد أفواج مضافة بعد.";
+    } else {
+        let index = 1;
+        for (const [id, name] of groupsData) {
+            groupsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+    }
+    
+    await client.sendMessage(replyTo, `
+${groupsList}
+
+ماذا تريد أن تفعل؟
+
+1. عرض الأفواج
+2. إضافة فوج جديد
+3. تعديل فوج
+4. حذف فوج
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'groups_action', 
+        timestamp: Date.now() 
+    });
+}
+
+async function handleGroupsAction(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    if (content === '1') { // Display groups
+        let groupsList = "📋 *قائمة الأفواج*\n\n";
+        if (groupsData.size === 0) {
+            groupsList += "لا توجد أفواج مضافة بعد.";
+        } else {
+            let index = 1;
+            for (const [id, name] of groupsData) {
+                groupsList += `${index}. ${name} (ID: ${id})\n`;
+                index++;
+            }
+        }
+        
+        await client.sendMessage(replyTo, `${groupsList}${signature}`);
+        userState.delete(userId);
+    } else if (content === '2') { // Add group
+        await client.sendMessage(replyTo, `
+📝 *إضافة فوج جديد*
+
+يرجى إرسال معلومات الفوج بالتنسيق التالي:
+اسم الفوج: [اسم الفوج]
+معرف الفوج: [معرف الفوج]
+
+💡 مثال:
+اسم الفوج: الفوج الأول
+معرف الفوج: group1
+
+💡 أرسل *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'add_group', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '3') { // Edit group
+        if (groupsData.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد أفواج للتعديل${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let groupsList = "📝 *اختر فوجاً للتعديل*\n\n";
+        let index = 1;
+        for (const [id, name] of groupsData) {
+            groupsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${groupsList}
+
+💡 أرسل رقم الفوج أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'edit_group_select', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '4') { // Delete group
+        if (groupsData.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد أفواج للحذف${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let groupsList = "🗑️ *اختر فوجاً للحذف*\n\n";
+        let index = 1;
+        for (const [id, name] of groupsData) {
+            groupsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${groupsList}
+
+⚠️ تحذير: سيتم حذف الفوج وجميع البيانات المرتبطة به!
+
+💡 أرسل رقم الفوج أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'delete_group_select', 
+            timestamp: Date.now() 
+        });
+    } else {
+        await client.sendMessage(replyTo, `⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4${signature}`);
+    }
+}
+
+async function handleAddGroup(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الفوج:\s*(.+)/i);
+    const idMatch = content.match(/معرف الفوج:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    
+    if (groupsData.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الفوج "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    groupsData.set(id, name);
+    await saveGroups();
+    
+    await client.sendMessage(replyTo, `✅ تمت إضافة الفوج "${name}" بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleEditGroupSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= groupsData.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم فوج صحيح${signature}`);
+        return;
+    }
+    
+    const groupId = Array.from(groupsData.keys())[index];
+    const groupName = groupsData.get(groupId);
+    
+    await client.sendMessage(replyTo, `
+📝 *تعديل الفوج*
+
+الفوج الحالي: ${groupName} (ID: ${groupId})
+
+يرجى إرسال المعلومات الجديدة بالتنسيق التالي:
+اسم الفوج: [الاسم الجديد]
+معرف الفوج: [المعرف الجديد]
+
+💡 أرسل *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'edit_group', 
+        timestamp: Date.now(),
+        groupId: groupId
+    });
+}
+
+async function handleEditGroup(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الفوج:\s*(.+)/i);
+    const idMatch = content.match(/معرف الفوج:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    const oldId = userState.get(userId).groupId;
+    
+    // Check if new ID already exists and it's not the same as the old one
+    if (id !== oldId && groupsData.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الفوج "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    // Delete old entry if ID is changing
+    if (id !== oldId) {
+        groupsData.delete(oldId);
+    }
+    
+    groupsData.set(id, name);
+    await saveGroups();
+    
+    await client.sendMessage(replyTo, `✅ تم تعديل الفوج بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleDeleteGroupSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= groupsData.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم فوج صحيح${signature}`);
+        return;
+    }
+    
+    const groupId = Array.from(groupsData.keys())[index];
+    const groupName = groupsData.get(groupId);
+    
+    // Confirm deletion
+    await client.sendMessage(replyTo, `
+⚠️ *تأكيد الحذف*
+
+هل أنت متأكد من حذف الفوج "${groupName}"؟
+
+هذا الإجراء لا يمكن التراجع عنه.
+
+💡 أرسل *تأكيد* للحذف أو *إلغاء* للإلغاء${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'confirm_delete_group', 
+        timestamp: Date.now(),
+        groupId: groupId,
+        groupName: groupName
+    });
+}
+
+// Helper functions for professors management
+async function handleProfessorsManagement(message, replyTo, senderName, signature, userId, currentGroupId) {
+    await message.react('📋');
+    
+    let professorsList = "📋 *قائمة الأساتذة*\n\n";
+    if (professors.size === 0) {
+        professorsList += "لا يوجد أساتذة مضافين بعد.";
+    } else {
+        let index = 1;
+        for (const [id, name] of professors) {
+            professorsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+    }
+    
+    await client.sendMessage(replyTo, `
+${professorsList}
+
+ماذا تريد أن تفعل؟
+
+1. عرض الأساتذة
+2. إضافة أستاذ جديد
+3. تعديل أستاذ
+4. حذف أستاذ
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'professors_action', 
+        timestamp: Date.now() 
+    });
+}
+
+async function handleProfessorsAction(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    if (content === '1') { // Display professors
+        let professorsList = "📋 *قائمة الأساتذة*\n\n";
+        if (professors.size === 0) {
+            professorsList += "لا يوجد أساتذة مضافين بعد.";
+        } else {
+            let index = 1;
+            for (const [id, name] of professors) {
+                professorsList += `${index}. ${name} (ID: ${id})\n`;
+                index++;
+            }
+        }
+        
+        await client.sendMessage(replyTo, `${professorsList}${signature}`);
+        userState.delete(userId);
+    } else if (content === '2') { // Add professor
+        await client.sendMessage(replyTo, `
+📝 *إضافة أستاذ جديد*
+
+يرجى إرسال معلومات الأستاذ بالتنسيق التالي:
+اسم الأستاذ: [اسم الأستاذ]
+معرف الأستاذ: [معرف الأستاذ]
+
+💡 مثال:
+اسم الأستاذ: د. أحمد محمد
+معرف الأستاذ: prof1
+
+💡 أرسل *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'add_professor', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '3') { // Edit professor
+        if (professors.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا يوجد أساتذة للتعديل${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let professorsList = "📝 *اختر أستاذاً للتعديل*\n\n";
+        let index = 1;
+        for (const [id, name] of professors) {
+            professorsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${professorsList}
+
+💡 أرسل رقم الأستاذ أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'edit_professor_select', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '4') { // Delete professor
+        if (professors.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا يوجد أساتذة للحذف${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let professorsList = "🗑️ *اختر أستاذاً للحذف*\n\n";
+        let index = 1;
+        for (const [id, name] of professors) {
+            professorsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${professorsList}
+
+⚠️ تحذير: سيتم حذف الأستاذ وجميع البيانات المرتبطة به!
+
+💡 أرسل رقم الأستاذ أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'delete_professor_select', 
+            timestamp: Date.now() 
+        });
+    } else {
+        await client.sendMessage(replyTo, `⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4${signature}`);
+    }
+}
+
+async function handleAddProfessor(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الأستاذ:\s*(.+)/i);
+    const idMatch = content.match(/معرف الأستاذ:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    
+    if (professors.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الأستاذ "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    professors.set(id, name);
+    await saveProfessors();
+    
+    await client.sendMessage(replyTo, `✅ تمت إضافة الأستاذ "${name}" بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleEditProfessorSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= professors.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم أستاذ صحيح${signature}`);
+        return;
+    }
+    
+    const professorId = Array.from(professors.keys())[index];
+    const professorName = professors.get(professorId);
+    
+    await client.sendMessage(replyTo, `
+📝 *تعديل الأستاذ*
+
+الأستاذ الحالي: ${professorName} (ID: ${professorId})
+
+يرجى إرسال المعلومات الجديدة بالتنسيق التالي:
+اسم الأستاذ: [الاسم الجديد]
+معرف الأستاذ: [المعرف الجديد]
+
+💡 أرسل *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'edit_professor', 
+        timestamp: Date.now(),
+        professorId: professorId
+    });
+}
+
+async function handleEditProfessor(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم الأستاذ:\s*(.+)/i);
+    const idMatch = content.match(/معرف الأستاذ:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    const oldId = userState.get(userId).professorId;
+    
+    // Check if new ID already exists and it's not the same as the old one
+    if (id !== oldId && professors.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف الأستاذ "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    // Delete old entry if ID is changing
+    if (id !== oldId) {
+        professors.delete(oldId);
+    }
+    
+    professors.set(id, name);
+    await saveProfessors();
+    
+    await client.sendMessage(replyTo, `✅ تم تعديل الأستاذ بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleDeleteProfessorSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= professors.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم أستاذ صحيح${signature}`);
+        return;
+    }
+    
+    const professorId = Array.from(professors.keys())[index];
+    const professorName = professors.get(professorId);
+    
+    // Confirm deletion
+    await client.sendMessage(replyTo, `
+⚠️ *تأكيد الحذف*
+
+هل أنت متأكد من حذف الأستاذ "${professorName}"؟
+
+هذا الإجراء لا يمكن التراجع عنه.
+
+💡 أرسل *تأكيد* للحذف أو *إلغاء* للإلغاء${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'confirm_delete_professor', 
+        timestamp: Date.now(),
+        professorId: professorId,
+        professorName: professorName
+    });
+}
+
+// Helper functions for subjects management
+async function handleSubjectsManagement(message, replyTo, senderName, signature, userId, currentGroupId) {
+    await message.react('📋');
+    
+    let subjectsList = "📋 *قائمة المواد*\n\n";
+    if (subjects.size === 0) {
+        subjectsList += "لا توجد مواد مضافة بعد.";
+    } else {
+        let index = 1;
+        for (const [id, name] of subjects) {
+            subjectsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+    }
+    
+    await client.sendMessage(replyTo, `
+${subjectsList}
+
+ماذا تريد أن تفعل؟
+
+1. عرض المواد
+2. إضافة مادة جديدة
+3. تعديل مادة
+4. حذف مادة
+
+💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'subjects_action', 
+        timestamp: Date.now() 
+    });
+}
+
+async function handleSubjectsAction(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    if (content === '1') { // Display subjects
+        let subjectsList = "📋 *قائمة المواد*\n\n";
+        if (subjects.size === 0) {
+            subjectsList += "لا توجد مواد مضافة بعد.";
+        } else {
+            let index = 1;
+            for (const [id, name] of subjects) {
+                subjectsList += `${index}. ${name} (ID: ${id})\n`;
+                index++;
+            }
+        }
+        
+        await client.sendMessage(replyTo, `${subjectsList}${signature}`);
+        userState.delete(userId);
+    } else if (content === '2') { // Add subject
+        await client.sendMessage(replyTo, `
+📝 *إضافة مادة جديدة*
+
+يرجى إرسال معلومات المادة بالتنسيق التالي:
+اسم المادة: [اسم المادة]
+معرف المادة: [معرف المادة]
+
+💡 مثال:
+اسم المادة: الرياضيات
+معرف المادة: math
+
+💡 أرسل *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'add_subject', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '3') { // Edit subject
+        if (subjects.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد مواد للتعديل${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let subjectsList = "📝 *اختر مادة للتعديل*\n\n";
+        let index = 1;
+        for (const [id, name] of subjects) {
+            subjectsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${subjectsList}
+
+💡 أرسل رقم المادة أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'edit_subject_select', 
+            timestamp: Date.now() 
+        });
+    } else if (content === '4') { // Delete subject
+        if (subjects.size === 0) {
+            await client.sendMessage(replyTo, `⚠️ لا توجد مواد للحذف${signature}`);
+            userState.delete(userId);
+            return;
+        }
+        
+        let subjectsList = "🗑️ *اختر مادة للحذف*\n\n";
+        let index = 1;
+        for (const [id, name] of subjects) {
+            subjectsList += `${index}. ${name} (ID: ${id})\n`;
+            index++;
+        }
+        
+        await client.sendMessage(replyTo, `
+${subjectsList}
+
+⚠️ تحذير: سيتم حذف المادة وجميع البيانات المرتبطة بها!
+
+💡 أرسل رقم المادة أو *إلغاء* للخروج${signature}
+        `);
+        
+        userState.set(userId, { 
+            step: 'delete_subject_select', 
+            timestamp: Date.now() 
+        });
+    } else {
+        await client.sendMessage(replyTo, `⚠️ خيار غير صالح. يرجى إرسال رقم من 1 إلى 4${signature}`);
+    }
+}
+
+async function handleAddSubject(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم المادة:\s*(.+)/i);
+    const idMatch = content.match(/معرف المادة:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    
+    if (subjects.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف المادة "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    subjects.set(id, name);
+    await saveSubjects();
+    
+    await client.sendMessage(replyTo, `✅ تمت إضافة المادة "${name}" بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleEditSubjectSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= subjects.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم مادة صحيح${signature}`);
+        return;
+    }
+    
+    const subjectId = Array.from(subjects.keys())[index];
+    const subjectName = subjects.get(subjectId);
+    
+    await client.sendMessage(replyTo, `
+📝 *تعديل المادة*
+
+المادة الحالية: ${subjectName} (ID: ${subjectId})
+
+يرجى إرسال المعلومات الجديدة بالتنسيق التالي:
+اسم المادة: [الاسم الجديد]
+معرف المادة: [المعرف الجديد]
+
+💡 أرسل *إلغاء* للخروج${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'edit_subject', 
+        timestamp: Date.now(),
+        subjectId: subjectId
+    });
+}
+
+async function handleEditSubject(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const nameMatch = content.match(/اسم المادة:\s*(.+)/i);
+    const idMatch = content.match(/معرف المادة:\s*(.+)/i);
+    
+    if (!nameMatch || !idMatch) {
+        await client.sendMessage(replyTo, `⚠️ تنسيق غير صالح. يرجى إرسال المعلومات بالتنسيق المطلوب${signature}`);
+        return;
+    }
+    
+    const name = nameMatch[1].trim();
+    const id = idMatch[1].trim();
+    const oldId = userState.get(userId).subjectId;
+    
+    // Check if new ID already exists and it's not the same as the old one
+    if (id !== oldId && subjects.has(id)) {
+        await client.sendMessage(replyTo, `⚠️ معرف المادة "${id}" موجود بالفعل${signature}`);
+        userState.delete(userId);
+        return;
+    }
+    
+    // Delete old entry if ID is changing
+    if (id !== oldId) {
+        subjects.delete(oldId);
+    }
+    
+    subjects.set(id, name);
+    await saveSubjects();
+    
+    await client.sendMessage(replyTo, `✅ تم تعديل المادة بنجاح${signature}`);
+    userState.delete(userId);
+}
+
+async function handleDeleteSubjectSelect(message, replyTo, senderName, signature, userId, currentGroupId, content) {
+    const index = parseInt(content) - 1;
+    if (isNaN(index) || index < 0 || index >= subjects.size) {
+        await client.sendMessage(replyTo, `⚠️ رقم غير صالح. يرجى إرسال رقم مادة صحيح${signature}`);
+        return;
+    }
+    
+    const subjectId = Array.from(subjects.keys())[index];
+    const subjectName = subjects.get(subjectId);
+    
+    // Confirm deletion
+    await client.sendMessage(replyTo, `
+⚠️ *تأكيد الحذف*
+
+هل أنت متأكد من حذف المادة "${subjectName}"؟
+
+هذا الإجراء لا يمكن التراجع عنه.
+
+💡 أرسل *تأكيد* للحذف أو *إلغاء* للإلغاء${signature}
+    `);
+    
+    userState.set(userId, { 
+        step: 'confirm_delete_subject', 
+        timestamp: Date.now(),
+        subjectId: subjectId,
+        subjectName: subjectName
+    });
+}
+
+// Handle confirmation of deletion for all types
+async function handleConfirmDelete(message, replyTo, senderName, signature, userId, currentGroupId, content, step) {
+    if (content === 'تأكيد' || content === 'confirm') {
+        const state = userState.get(userId);
+        
+        switch (step) {
+            case 'confirm_delete_section':
+                sections.delete(state.sectionId);
+                await saveSections();
+                await client.sendMessage(replyTo, `✅ تم حذف الشعبة "${state.sectionName}" بنجاح${signature}`);
+                break;
+                
+            case 'confirm_delete_class':
+                classes.delete(state.classId);
+                await saveClasses();
+                await client.sendMessage(replyTo, `✅ تم حذف الفصل "${state.className}" بنجاح${signature}`);
+                break;
+                
+            case 'confirm_delete_group':
+                groupsData.delete(state.groupId);
+                await saveGroups();
+                await client.sendMessage(replyTo, `✅ تم حذف الفوج "${state.groupName}" بنجاح${signature}`);
+                break;
+                
+            case 'confirm_delete_professor':
+                professors.delete(state.professorId);
+                await saveProfessors();
+                await client.sendMessage(replyTo, `✅ تم حذف الأستاذ "${state.professorName}" بنجاح${signature}`);
+                break;
+                
+            case 'confirm_delete_subject':
+                subjects.delete(state.subjectId);
+                await saveSubjects();
+                await client.sendMessage(replyTo, `✅ تم حذف المادة "${state.subjectName}" بنجاح${signature}`);
+                break;
+        }
+        
+        userState.delete(userId);
+    } else if (content === 'إلغاء' || content === 'cancel') {
+        await client.sendMessage(replyTo, `✅ تم إلغاء عملية الحذف${signature}`);
+        userState.delete(userId);
+    } else {
+        await client.sendMessage(replyTo, `⚠️ يرجى إرسال *تأكيد* أو *إلغاء*${signature}`);
+    }
+}
+
+// Initialize the client
+client.initialize();

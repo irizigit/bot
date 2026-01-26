@@ -1,0 +1,42 @@
+{
+  "help": {
+    "triggers": [
+      "!الأوامر",
+      "!help",
+      "!مساعدة"
+    ],
+    "description": "لعرض قائمة بجميع الأوامر المتاحة.",
+    "enabled": true
+  },
+  "add_pdf": {
+    "triggers": [
+      "!اضافة_pdf",
+      "!add pdf"
+    ],
+    "description": "لبدء عملية إضافة محاضرة أو ملخص جديد.",
+    "enabled": true
+  },
+  "download_pdf": {
+    "triggers": [
+      "!تحميل",
+      "!download"
+    ],
+    "description": "للبحث عن محاضرة أو ملخص وتحميله.",
+    "enabled": true
+  },
+  "lectures_table": {
+    "triggers": [
+      "!جدول_المحاضرات",
+      "!lectures_table"
+    ],
+    "description": "لإنشاء ملف PDF يحتوي على جدول بجميع المحاضرات.",
+    "enabled": true
+  },
+  "ask_gemini": {
+    "triggers": [
+      "!ask"
+    ],
+    "description": "لطرح سؤال على الذكاء الاصطناعي Gemini.",
+    "enabled": true
+  }
+}
