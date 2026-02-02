@@ -1749,7 +1749,7 @@ ${signature}`);
                         );
                         
                         await client.sendMessage(userId, media, {
-                            caption: `📊 *جدول المحاضرات*\n\nتم إنشاء الجدول باستخدام pdfmake!\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n📝 عدد المحاضرات: ${lecturesMetadata.length}\n🤖 تم إنشاؤه بواسطة Gemini AI${signature}`
+                            caption: `📊 *جدول المحاضرات*\n\nتم إنشاء الجدول باستخدام pdfmake!\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n📝 عدد المحاضرات: ${lecturesMetadata.length}\n تم إنشاؤه بواسطةIRIZI${signature}`
                         });
                         
                         await message.react('✅');
