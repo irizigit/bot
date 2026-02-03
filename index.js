@@ -46,7 +46,7 @@ const PDF_ARCHIVE_GROUP = '120363403563982270@g.us';
 const IMAGES_ARCHIVE_GROUP = '120363400468776166@g.us';
 const OWNER_ID = '212621957775@c.us';
 const PROTECTION_PASSWORD = process.env.BOT_PASSWORD || 'your_secure_password';
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'YOUR_GEMINI_API_KEY';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAtjzws4mfUHl3LkNuXUTtwubSBTmGSsc8';
 
 let lecturesMetadata = [];
 const lecturesFile = './lectures.json';
