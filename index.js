@@ -8,7 +8,7 @@ const fetch = require('node-fetch');
 const PdfPrinter = require('pdfmake');
 const { exec } = require('child_process');
 
-// --- ربط قاعدة البيانات الجذري ---
+// --- ربط قاعدة البيانات ---
 const db = require('./database.js');
 
 const client = new Client({ 
@@ -39,7 +39,7 @@ const messageStats = new Map();
 
 // New data structures
 const sections = new Map(); // الشعب
-const classes = new Map(); // الفصول (التي تضاف يدوياً عبر الإدارة)
+const classes = new Map(); // الفصول
 const groupsData = new Map(); // الأفواج
 const professors = new Map(); // الأساتذة
 const subjects = new Map(); // المواد
@@ -49,7 +49,7 @@ let requestCount = 0;
 let isBotReady = false;
 const PDF_ARCHIVE_GROUP = '120363403563982270@g.us';
 const IMAGES_ARCHIVE_GROUP = '120363400468776166@g.us';
-const OWNER_ID = '2126219577758@c.us';
+const OWNER_ID = '212621957775@c.us';
 const PROTECTION_PASSWORD = process.env.BOT_PASSWORD || 'your_secure_password';
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || 'AIzaSyAtjzws4mfUHl3LkNuXUTtwubSBTmGSsc8';
 
@@ -429,7 +429,7 @@ client.on('ready', async () => {
         }
         console.log(`[ℹ️] Loaded ${groupsMetadata.size} groups`);
         
-        // كود محمي بـ try...catch لمنع توقف البوت
+        // --- حماية البوت من التوقف بسبب خطأ رقم المالك (LID) ---
         setTimeout(async () => {
             try {
                 if (isBotReady) { 
@@ -443,6 +443,7 @@ client.on('ready', async () => {
         console.error('[❌] Error in ready event:', error); 
     }
 });
+
 client.on('disconnected', reason => { console.log('[❌] Client disconnected:', reason); isBotReady = false; });
 
 client.on('group_join', async (notification) => {
@@ -597,7 +598,7 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر الإضافة ---
+        // --- أمر الإضافة بالاستمارة الموحدة ---
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (isGroupMessage) {
                 if (sections.size === 0) {
