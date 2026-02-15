@@ -1,18 +1,26 @@
-// database.js - الإصدار المحدث مع إنشاء مجلدات المواد في GitHub
+// database.js - الإصدار المحدث مع إصلاح خطأ ESM لـ Octokit
 
 const { Pool } = require('pg');
 const state = require('./state.js');
-const { Octokit } = require("@octokit/rest");
 const { GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO } = require('./config.js');
 
-// --- إعدادات الاتصال بـ GitHub ---
+// --- إعدادات الاتصال بـ GitHub (محدث بالاستدعاء الديناميكي لتفادي الخطأ) ---
 let octokit;
-if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
-    octokit = new Octokit({ auth: GITHUB_TOKEN });
-    console.log('[🐙] GitHub client configured successfully.');
-} else {
-    console.warn('[⚠️] GitHub configuration is missing. Folder creation and file uploads will fail.');
-}
+
+(async () => {
+    if (GITHUB_TOKEN && GITHUB_OWNER && GITHUB_REPO) {
+        try {
+            // الاستدعاء الديناميكي لحل مشكلة ERR_REQUIRE_ESM
+            const { Octokit } = await import("@octokit/rest");
+            octokit = new Octokit({ auth: GITHUB_TOKEN });
+            console.log('[🐙] GitHub client configured successfully.');
+        } catch (err) {
+            console.error('[❌] Failed to load Octokit:', err);
+        }
+    } else {
+        console.warn('[⚠️] GitHub configuration is missing. Folder creation and file uploads will fail.');
+    }
+})();
 
 const DATABASE_URL = process.env.DATABASE_URL;
 
@@ -41,7 +49,7 @@ async function createGitHubFolders(setupData) {
         if (!classData) continue;
         const className = classData.className;
 
-        // --- التعديل هنا: إضافة حلقة تكرارية للمرور على المواد ---
+        // --- إضافة حلقة تكرارية للمرور على المواد ---
         for (const subjectName of classData.subjects) {
             // إنشاء مسار جديد يتضمن اسم المادة
             const path = `lectures/${sectionName}/${className}/${subjectName}/.gitkeep`;
