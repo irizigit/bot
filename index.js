@@ -1,4 +1,3 @@
-require('dotenv').config();
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const cron = require('node-cron');
@@ -6,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const fetch = require('node-fetch');
 const PdfPrinter = require('pdfmake');
+const { exec } = require('child_process');
 
 // --- ربط قاعدة البيانات الجذري ---
 const db = require('./database.js');
@@ -25,6 +25,8 @@ const client = new Client({
         ]
     }
 });
+
+require('dotenv').config();
 
 // Bot state and data
 const userState = new Map();
@@ -569,7 +571,21 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر الإضافة المحدث جذرياً بالاستمارة ---
+        // --- التحديث من جيتهاب ---
+        if (!isGroupMessage && userId === OWNER_ID && content === '!تحديث') {
+            await message.react('🔄');
+            await client.sendMessage(userId, `🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.`);
+            exec('git pull origin main && pm2 restart all', async (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`[❌] فشل التحديث: ${error.message}`);
+                    await client.sendMessage(userId, `⚠️ حدث خطأ أثناء التحديث:\n${error.message}\n${signature}`);
+                    return;
+                }
+            });
+            return;
+        }
+
+        // --- أمر الإضافة ---
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (isGroupMessage) {
                 if (sections.size === 0) {
@@ -586,9 +602,14 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر التحميل المحدث (بدون خطوات معقدة، يستخدم DB) ---
+        // --- أمر التحميل المحدث (بالقوائم المتدرجة) ---
         if (content === '!تحميل' || content === '!download') {
             if (isGroupMessage) {
+                if (sections.size === 0) {
+                    await message.react('⚠️');
+                    await client.sendMessage(replyTo, `⚠️ لم يتم إعداد بيانات الشعب بعد!${signature}`);
+                    return;
+                }
                 await message.react('📥');
                 await client.sendMessage(replyTo, `📥 *تحميل ملف PDF*\nمرحباً ${senderName}! 🙋‍♂️\nيرجى اختيار نوع الملف للبحث:\n1. محاضرة\n2. ملخص\n\n💡 أرسل رقم الخيار أو *إلغاء* للخروج${signature}`);
                 userState.set(userId, { step: 'select_pdf_type_for_download', timestamp: Date.now() });
@@ -716,7 +737,7 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- خطوات تحميل PDF (مبسطة مع DB) ---
+            // --- خطوات تحميل PDF (محدثة لتكون عبر القوائم) ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2) {
@@ -725,19 +746,58 @@ client.on('message_create', async message => {
                     return;
                 }
                 state.pdfType = option === 1 ? 'محاضرة' : 'ملخص';
-                state.step = 'enter_subject_for_download';
+                state.step = 'select_section_for_download';
                 userState.set(userId, state);
-                await client.sendMessage(replyTo, `📖 يرجى إدخال *اسم المادة* للبحث عن الـ ${state.pdfType} المطلوب:\n💡 أرسل *إلغاء* للخروج${signature}`);
+                
+                let sectionsList = `📚 *اختر الشعبة*\n\n`;
+                let index = 1;
+                for (const [id, name] of sections) {
+                    sectionsList += `${index}. ${name}\n`;
+                    index++;
+                }
+                await client.sendMessage(replyTo, sectionsList + `\n💡 أرسل رقم الشعبة أو *إلغاء* للخروج${signature}`);
                 return;
             }
 
-            if (state.step === 'enter_subject_for_download') {
-                const subjectName = content.trim();
-                const query = `SELECT * FROM lectures WHERE type = $1 AND subject_name ILIKE $2 ORDER BY id DESC`;
+            if (state.step === 'select_section_for_download') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > sections.size) {
+                    await message.react('⚠️');
+                    await client.sendMessage(replyTo, `⚠️ خيار غير صحيح! يرجى اختيار رقم الشعبة الصحيح.${signature}`);
+                    return;
+                }
+                const sectionId = Array.from(sections.keys())[option - 1];
+                state.sectionName = sections.get(sectionId);
+                state.step = 'select_class_for_download';
+                userState.set(userId, state);
+                
+                let classesList = `🏫 *اختر الفصل*\n\n`;
+                let index = 1;
+                for (const [id, name] of classes) {
+                    classesList += `${index}. ${name}\n`;
+                    index++;
+                }
+                await client.sendMessage(replyTo, classesList + `\n💡 أرسل رقم الفصل أو *إلغاء* للخروج${signature}`);
+                return;
+            }
+
+            if (state.step === 'select_class_for_download') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > classes.size) {
+                    await message.react('⚠️');
+                    await client.sendMessage(replyTo, `⚠️ خيار غير صحيح! يرجى اختيار رقم الفصل الصحيح.${signature}`);
+                    return;
+                }
+                const classId = Array.from(classes.keys())[option - 1];
+                state.className = classes.get(classId);
+                
+                // البحث في قاعدة البيانات بناءً على النوع، الشعبة والفصل
+                const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY id DESC`;
                 try {
-                    const res = await db.query(query, [state.pdfType, `%${subjectName}%`]);
+                    const res = await db.query(query, [state.pdfType, state.sectionName, state.className]);
                     if (res.rows.length === 0) {
-                        await client.sendMessage(replyTo, `⚠️ لا توجد نتائج لـ ${state.pdfType} في مادة "${subjectName}". جرب اسماً آخر أو أرسل *إلغاء*.${signature}`);
+                        await client.sendMessage(replyTo, `⚠️ لا توجد ${state.pdfType} متوفرة لشعبة "${state.sectionName}" فصل "${state.className}".\nأرسل *إلغاء* للخروج.${signature}`);
+                        userState.delete(userId);
                         return;
                     }
                     
@@ -745,11 +805,14 @@ client.on('message_create', async message => {
                     state.step = 'select_lecture_for_download';
                     userState.set(userId, state);
                     
-                    let lecturesList = `📄 *نتائج البحث عن ${state.pdfType} (${subjectName})*\n\n`;
+                    let lecturesList = `📄 *قائمة الـ ${state.pdfType} المتوفرة*\n`;
+                    lecturesList += `📚 الشعبة: ${state.sectionName} | 🏫 الفصل: ${state.className}\n\n`;
+                    
                     res.rows.forEach((lecture, index) => {
-                        lecturesList += `${index + 1}. ${state.pdfType} رقم ${lecture.lecture_number}\n`;
+                        lecturesList += `${index + 1}. 📖 المادة: ${lecture.subject_name}\n`;
+                        lecturesList += `   📝 رقم ${state.pdfType}: ${lecture.lecture_number}\n`;
                         lecturesList += `   👨‍🏫 الأستاذ: ${lecture.professor_name}\n`;
-                        lecturesList += `   🏫 الفصل: ${lecture.class_name} | الفوج: ${lecture.group_name}\n\n`;
+                        lecturesList += `   👥 الفوج: ${lecture.group_name}\n\n`;
                     });
                     lecturesList += `💡 أرسل رقم الملف لتحميله أو *إلغاء* للخروج${signature}`;
                     
