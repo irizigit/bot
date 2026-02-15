@@ -27,8 +27,6 @@ const client = new Client({
     }
 });
 
-
-
 // Bot state and data
 const userState = new Map();
 const groupsMetadata = new Map();
@@ -41,7 +39,7 @@ const messageStats = new Map();
 
 // New data structures
 const sections = new Map(); // الشعب
-const classes = new Map(); // الفصول
+const classes = new Map(); // الفصول (التي تضاف يدوياً عبر الإدارة)
 const groupsData = new Map(); // الأفواج
 const professors = new Map(); // الأساتذة
 const subjects = new Map(); // المواد
@@ -603,7 +601,7 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر التحميل المحدث (بالقوائم المتدرجة) ---
+        // --- أمر التحميل المحدث (بالقوائم المتدرجة من الاستمارة) ---
         if (content === '!تحميل' || content === '!download') {
             if (isGroupMessage) {
                 if (sections.size === 0) {
@@ -738,7 +736,7 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- خطوات تحميل PDF (محدثة لتكون عبر القوائم) ---
+            // --- خطوات تحميل PDF (محدثة لتجلب الفصول من قاعدة البيانات/الاستمارة) ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2) {
@@ -760,6 +758,7 @@ client.on('message_create', async message => {
                 return;
             }
 
+            // هنا يختار المستخدم الشعبة ونعرض له الفصول الموجودة فعلياً في القاعدة (من الاستمارات)
             if (state.step === 'select_section_for_download') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > sections.size) {
@@ -769,30 +768,49 @@ client.on('message_create', async message => {
                 }
                 const sectionId = Array.from(sections.keys())[option - 1];
                 state.sectionName = sections.get(sectionId);
-                state.step = 'select_class_for_download';
-                userState.set(userId, state);
                 
-                let classesList = `🏫 *اختر الفصل*\n\n`;
-                let index = 1;
-                for (const [id, name] of classes) {
-                    classesList += `${index}. ${name}\n`;
-                    index++;
+                try {
+                    // جلب الفصول المتاحة فقط والتي تم إضافة ملفات لها بناء على الاستمارات
+                    const query = `SELECT DISTINCT class_name FROM lectures WHERE type = $1 AND section_name = $2`;
+                    const res = await db.query(query, [state.pdfType, state.sectionName]);
+                    
+                    if (res.rows.length === 0) {
+                        await client.sendMessage(replyTo, `⚠️ لا توجد ${state.pdfType} متوفرة حالياً لشعبة "${state.sectionName}".\nأرسل *إلغاء* للخروج.${signature}`);
+                        userState.delete(userId);
+                        return;
+                    }
+
+                    // حفظ الفصول المتاحة في حالة المستخدم
+                    state.availableClasses = res.rows.map(row => row.class_name);
+                    state.step = 'select_class_for_download';
+                    userState.set(userId, state);
+                    
+                    let classesList = `🏫 *اختر الفصل*\n\n`;
+                    state.availableClasses.forEach((className, index) => {
+                        classesList += `${index + 1}. الفصل: ${className}\n`;
+                    });
+                    
+                    await client.sendMessage(replyTo, classesList + `\n💡 أرسل رقم الفصل أو *إلغاء* للخروج${signature}`);
+                } catch (err) {
+                    console.error(err);
+                    await client.sendMessage(replyTo, `⚠️ حدث خطأ أثناء جلب الفصول من قاعدة البيانات!${signature}`);
+                    userState.delete(userId);
                 }
-                await client.sendMessage(replyTo, classesList + `\n💡 أرسل رقم الفصل أو *إلغاء* للخروج${signature}`);
                 return;
             }
 
             if (state.step === 'select_class_for_download') {
                 const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > classes.size) {
+                if (isNaN(option) || option < 1 || option > state.availableClasses.length) {
                     await message.react('⚠️');
                     await client.sendMessage(replyTo, `⚠️ خيار غير صحيح! يرجى اختيار رقم الفصل الصحيح.${signature}`);
                     return;
                 }
-                const classId = Array.from(classes.keys())[option - 1];
-                state.className = classes.get(classId);
                 
-                // البحث في قاعدة البيانات بناءً على النوع، الشعبة والفصل
+                // جلب اسم الفصل من القائمة الديناميكية
+                state.className = state.availableClasses[option - 1];
+                
+                // البحث في قاعدة البيانات بناءً على النوع، الشعبة والفصل المختارين
                 const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY id DESC`;
                 try {
                     const res = await db.query(query, [state.pdfType, state.sectionName, state.className]);
