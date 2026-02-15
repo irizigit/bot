@@ -392,15 +392,9 @@ async function isBotAdmin(groupId) {
     try {
         const chat = await client.getChatById(groupId);
         const botId = client.info.wid._serialized;
-        const admins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
-        return admins.some(admin => admin.id._serialized === botId);
+        const groupAdmins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
+        return groupAdmins.some(admin => admin.id._serialized === botId);
     } catch (error) { return false; }
-}
-
-async function verifyGroup(groupId, groupName) {
-    if (!isBotReady) return false;
-    try { await client.getChatById(groupId); return true; } 
-    catch (error) { return false; }
 }
 
 function formatPhoneNumber(number) {
@@ -436,7 +430,7 @@ client.on('ready', async () => {
                     await client.sendMessage(OWNER_ID, '✅ البوت يعمل الآن!' + signature); 
                 }
             } catch (err) {
-                console.log('[⚠️] تعذر إرسال رسالة للمالك (No LID). البوت يعمل، لكن يحتاج لرسالة منك في الخاص ليتعرف على رقمك.');
+                console.log('[⚠️] تعذر إرسال رسالة للمالك (No LID). البوت يعمل.');
             }
         }, 5000);
     } catch (error) { 
@@ -598,7 +592,7 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر الإضافة بالاستمارة الموحدة ---
+        // --- أمر الإضافة ---
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (isGroupMessage) {
                 if (sections.size === 0) {
@@ -615,7 +609,7 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر التحميل المحدث (بالقوائم المتدرجة من الاستمارة) ---
+        // --- أمر التحميل ---
         if (content === '!تحميل' || content === '!download') {
             if (isGroupMessage) {
                 if (sections.size === 0) {
@@ -632,6 +626,7 @@ client.on('message_create', async message => {
             return;
         }
 
+        // --- دخول لوحة الإدارة ---
         if (!isGroupMessage && userId === OWNER_ID && content === '!إدارة') {
             await message.react('👨‍💻');
             await client.sendMessage(userId, `👨‍💻 *لوحة الإدارة*\nاختر العملية:\n1. إضافة عضو\n2. حذف عضو\n3. ترقية عضو\n4. خفض مشرف\n5. إضافة مبرمج\n6. حذف مبرمج\n7. تنظيف المجموعة\n8. تثبيت رسالة\n9. إحصائيات المجموعات\n10. تحفيز المستخدمين\n11. تحليل ذكاء اصطناعي\n12. إنشاء محتوى\n13. جدول المحاضرات\n14. إدارة المحاضرات\n15. إدارة الشعب\n16. إدارة الفصول\n17. إدارة الأفواج\n18. إدارة الأساتذة\n19. إدارة المواد\n💡 أرسل رقم الخيار أو *إلغاء*${signature}`);
@@ -750,7 +745,7 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- خطوات تحميل PDF (محدثة لتجلب الفصول من قاعدة البيانات/الاستمارة) ---
+            // --- خطوات تحميل PDF ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2) {
@@ -772,7 +767,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // هنا يختار المستخدم الشعبة ونعرض له الفصول الموجودة فعلياً في القاعدة (من الاستمارات)
             if (state.step === 'select_section_for_download') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > sections.size) {
@@ -784,7 +778,6 @@ client.on('message_create', async message => {
                 state.sectionName = sections.get(sectionId);
                 
                 try {
-                    // جلب الفصول المتاحة فقط والتي تم إضافة ملفات لها بناء على الاستمارات
                     const query = `SELECT DISTINCT class_name FROM lectures WHERE type = $1 AND section_name = $2`;
                     const res = await db.query(query, [state.pdfType, state.sectionName]);
                     
@@ -794,7 +787,6 @@ client.on('message_create', async message => {
                         return;
                     }
 
-                    // حفظ الفصول المتاحة في حالة المستخدم
                     state.availableClasses = res.rows.map(row => row.class_name);
                     state.step = 'select_class_for_download';
                     userState.set(userId, state);
@@ -821,10 +813,8 @@ client.on('message_create', async message => {
                     return;
                 }
                 
-                // جلب اسم الفصل من القائمة الديناميكية
                 state.className = state.availableClasses[option - 1];
                 
-                // البحث في قاعدة البيانات بناءً على النوع، الشعبة والفصل المختارين
                 const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY id DESC`;
                 try {
                     const res = await db.query(query, [state.pdfType, state.sectionName, state.className]);
@@ -890,25 +880,39 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- Admin Panel ---
+            // --- Admin Panel Implementation ---
             if (userId === OWNER_ID) {
                 if (state.step === 'admin_menu') {
                     const option = parseInt(content);
                     if (isNaN(option) || option < 1 || option > 19) { await client.sendMessage(userId, `⚠️ خيار غير صحيح!`); return; }
                     
+                    if (option === 5) {
+                        await client.sendMessage(userId, `📞 أرسل رقم المبرمج الجديد (مثال: 212600000000):`);
+                        userState.set(userId, { step: 'add_dev_number', timestamp: Date.now() }); return;
+                    }
+                    if (option === 6) {
+                        await client.sendMessage(userId, `📞 أرسل رقم المبرمج لإزالته (مثال: 212600000000):`);
+                        userState.set(userId, { step: 'remove_dev_number', timestamp: Date.now() }); return;
+                    }
                     if (option === 8) {
                         await client.sendMessage(userId, `📌 *تثبيت رسالة*\nفي المجموعة، اعمل ريبلي للرسالة اللي عايز تثبتها واكتب:\n!تثبيت`);
                         userState.delete(userId); return;
                     }
                     if (option === 10) { await client.sendMessage(userId, `✅ تم تفعيل التحفيز التلقائي!`); userState.delete(userId); return; }
+                    
                     if (option === 9) {
                         await client.sendMessage(userId, `📊 *إحصائيات المجموعات*\n1. الأعضاء المنضمين\n2. الأعضاء اللي غادروا\n3. نشاط الرسايل\n4. المحاضرات المضافة`);
                         userState.set(userId, { step: 'stats_menu', timestamp: Date.now() }); return;
                     }
-                    if (option === 11) { userState.set(userId, { step: 'ai_analysis_select', timestamp: Date.now() }); return; }
-                    if (option === 12) { userState.set(userId, { step: 'ai_generate_content', timestamp: Date.now() }); return; }
+                    if (option === 11) { 
+                        await client.sendMessage(userId, `🔍 أرسل النص أو السؤال الذي تريد أن يحلله الذكاء الاصطناعي:`);
+                        userState.set(userId, { step: 'ai_analysis_execute', timestamp: Date.now() }); return; 
+                    }
+                    if (option === 12) { 
+                        await client.sendMessage(userId, `✍️ أرسل وصف المحتوى الذي تريد من الذكاء الاصطناعي إنشاؤه:`);
+                        userState.set(userId, { step: 'ai_generate_execute', timestamp: Date.now() }); return; 
+                    }
                     if (option === 13) {
-                        // PDF generation for admin using DB
                         try {
                             const res = await db.query('SELECT subject_name, lecture_number, professor_name, group_name, date_added FROM lectures ORDER BY id ASC');
                             if (res.rows.length === 0) { await client.sendMessage(userId, `⚠️ لا توجد محاضرات!`); userState.delete(userId); return; }
@@ -922,18 +926,118 @@ client.on('message_create', async message => {
                         await client.sendMessage(userId, `📚 *إدارة المحاضرات*\n1. عرض جميع المحاضرات\n2. تعديل محاضرة\n3. حذف محاضرة`);
                         userState.set(userId, { step: 'lectures_management_menu', timestamp: Date.now() }); return;
                     }
-                    if (option === 15) { userState.set(userId, { step: 'sections_management_menu', timestamp: Date.now() }); return; }
-                    if (option === 16) { userState.set(userId, { step: 'classes_management_menu', timestamp: Date.now() }); return; }
-                    if (option === 17) { userState.set(userId, { step: 'groups_management_menu', timestamp: Date.now() }); return; }
-                    if (option === 18) { userState.set(userId, { step: 'professors_management_menu', timestamp: Date.now() }); return; }
-                    if (option === 19) { userState.set(userId, { step: 'subjects_management_menu', timestamp: Date.now() }); return; }
+                    if (option >= 15 && option <= 19) {
+                        const maps = { 15: 'sections', 16: 'classes', 17: 'groups', 18: 'professors', 19: 'subjects' };
+                        userState.set(userId, { step: `${maps[option]}_management_menu`, timestamp: Date.now() }); 
+                        return; 
+                    }
 
+                    // Options 1, 2, 3, 4, 7 (Requires Group Selection)
                     let groupList = `📋 *اختر المجموعة*\n`;
                     let index = 1;
                     for (const [id, name] of groupsMetadata) { groupList += `${index}. ${name} (${id})\n`; index++; }
                     await client.sendMessage(userId, groupList);
                     userState.set(userId, { step: `admin_option_${option}_select_group`, timestamp: Date.now() });
                     return;
+                }
+
+                // --- تنفيذ الخيارات (1، 2، 3، 4، 7) - تحديد المجموعة ثم الرقم ---
+                if (state.step && state.step.startsWith('admin_option_')) {
+                    const match = state.step.match(/admin_option_(\d+)_select_group/);
+                    if (match) {
+                        const opt = parseInt(match[1]);
+                        const groupIndex = parseInt(content) - 1;
+                        const groupsArray = Array.from(groupsMetadata.entries());
+                        
+                        if (isNaN(groupIndex) || groupIndex < 0 || groupIndex >= groupsArray.length) {
+                            await client.sendMessage(userId, '⚠️ اختيار خاطئ للمجموعة.'); return;
+                        }
+                        const selectedGroupId = groupsArray[groupIndex][0];
+
+                        // خيار تنظيف المجموعة (7)
+                        if (opt === 7) {
+                            await client.sendMessage(userId, '🧹 جاري تنظيف المجموعة من الأعضاء المحظورين...');
+                            let kicked = 0;
+                            try {
+                                const chat = await client.getChatById(selectedGroupId);
+                                for (const participant of chat.participants) {
+                                    if (blacklist.has(participant.id._serialized)) {
+                                        await chat.removeParticipants([participant.id._serialized]);
+                                        kicked++;
+                                    }
+                                }
+                                await client.sendMessage(userId, `✅ تم التنظيف! تم طرد ${kicked} عضو محظور.`);
+                            } catch (e) { await client.sendMessage(userId, '⚠️ خطأ (تأكد أن البوت مشرف في المجموعة).'); }
+                            userState.delete(userId); return;
+                        }
+
+                        // الخيارات 1، 2، 3، 4 تطلب إدخال رقم هاتف
+                        const actions = {1: 'إضافته', 2: 'حذفه', 3: 'ترقيته', 4: 'خفض رتبته'};
+                        await client.sendMessage(userId, `📞 أرسل رقم العضو المراد ${actions[opt]} (مثال: 212600000000):`);
+                        userState.set(userId, { step: `admin_execute_${opt}`, groupId: selectedGroupId, timestamp: Date.now() });
+                        return;
+                    }
+                }
+
+                // --- تنفيذ إجراء المجموعة الفعلي ---
+                if (state.step && state.step.startsWith('admin_execute_')) {
+                    const match = state.step.match(/admin_execute_(\d+)/);
+                    if (match) {
+                        const opt = parseInt(match[1]);
+                        const targetNumber = content.replace(/\D/g, '') + '@c.us';
+                        try {
+                            const chat = await client.getChatById(state.groupId);
+                            if (opt === 1) await chat.addParticipants([targetNumber]);
+                            if (opt === 2) await chat.removeParticipants([targetNumber]);
+                            if (opt === 3) await chat.promoteParticipants([targetNumber]);
+                            if (opt === 4) await chat.demoteParticipants([targetNumber]);
+                            await client.sendMessage(userId, `✅ تمت العملية بنجاح!`);
+                        } catch (err) {
+                            await client.sendMessage(userId, `⚠️ حدث خطأ. تأكد أن البوت مشرف وأن الرقم صحيح ومسجل بالواتساب.`);
+                        }
+                        userState.delete(userId); return;
+                    }
+                }
+
+                // --- تنفيذ الخيارات (5، 6) - المبرمجين ---
+                if (state.step === 'add_dev_number') {
+                    const num = content.replace(/\D/g, '') + '@c.us';
+                    admins.add(num);
+                    await client.sendMessage(userId, `✅ تم إضافة المبرمج بنجاح.`);
+                    userState.delete(userId); return;
+                }
+                if (state.step === 'remove_dev_number') {
+                    const num = content.replace(/\D/g, '') + '@c.us';
+                    admins.delete(num);
+                    await client.sendMessage(userId, `✅ تم إزالة المبرمج بنجاح.`);
+                    userState.delete(userId); return;
+                }
+
+                // --- تنفيذ الخيارات (9، 11، 12) - إحصاءات وذكاء اصطناعي ---
+                if (state.step === 'stats_menu') {
+                    const opt = parseInt(content);
+                    let msg = '';
+                    if (opt === 1) msg = `📈 *إحصائيات الانضمام*\n${JSON.stringify(Object.fromEntries(joinStats), null, 2)}`;
+                    else if (opt === 2) msg = `📉 *إحصائيات المغادرة*\n${JSON.stringify(Object.fromEntries(leaveStats), null, 2)}`;
+                    else if (opt === 3) msg = `💬 *نشاط الرسائل*\n${JSON.stringify(Object.fromEntries(messageStats), null, 2)}`;
+                    else if (opt === 4) msg = `📚 *المحاضرات المضافة*\n${JSON.stringify(Object.fromEntries(lectureStats), null, 2)}`;
+                    else msg = '⚠️ خيار خاطئ';
+                    await client.sendMessage(userId, msg);
+                    userState.delete(userId); return;
+                }
+
+                if (state.step === 'ai_analysis_execute') {
+                    await client.sendMessage(userId, '⏳ جاري التحليل عبر الذكاء الاصطناعي...');
+                    const res = await askGemini(`قم بتحليل هذا الطلب وتقديم رد مناسب: ${content}`);
+                    await client.sendMessage(userId, res);
+                    userState.delete(userId); return;
+                }
+
+                if (state.step === 'ai_generate_execute') {
+                    await client.sendMessage(userId, '⏳ جاري كتابة المحتوى عبر الذكاء الاصطناعي...');
+                    const res = await askGemini(`اكتب محتوى تفصيلي عن: ${content}`);
+                    await client.sendMessage(userId, res);
+                    userState.delete(userId); return;
                 }
 
                 // إدارة المحاضرات عبر القاعدة
