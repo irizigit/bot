@@ -422,14 +422,27 @@ client.on('ready', async () => {
     isBotReady = true;
     try {
         const chats = await client.getChats();
-        for (const chat of chats) { if (chat.isGroup) { groupsMetadata.set(chat.id._serialized, chat.name); } }
+        for (const chat of chats) { 
+            if (chat.isGroup) { 
+                groupsMetadata.set(chat.id._serialized, chat.name); 
+            } 
+        }
         console.log(`[ℹ️] Loaded ${groupsMetadata.size} groups`);
+        
+        // كود محمي بـ try...catch لمنع توقف البوت
         setTimeout(async () => {
-            if (isBotReady) { await client.sendMessage(OWNER_ID, '✅ البوت يعمل الآن!' + signature); }
+            try {
+                if (isBotReady) { 
+                    await client.sendMessage(OWNER_ID, '✅ البوت يعمل الآن!' + signature); 
+                }
+            } catch (err) {
+                console.log('[⚠️] تعذر إرسال رسالة للمالك (No LID). البوت يعمل، لكن يحتاج لرسالة منك في الخاص ليتعرف على رقمك.');
+            }
         }, 5000);
-    } catch (error) { console.error('[❌] Error in ready event:', error); }
+    } catch (error) { 
+        console.error('[❌] Error in ready event:', error); 
+    }
 });
-
 client.on('disconnected', reason => { console.log('[❌] Client disconnected:', reason); isBotReady = false; });
 
 client.on('group_join', async (notification) => {
