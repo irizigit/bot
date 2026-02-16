@@ -713,12 +713,14 @@ client.on('message_create', async message => {
 13. جدول المحاضرات
 14. إدارة المحاضرات
 15. إدارة الشعب
-16. إدارة الفصول
-17. إدارة الأفواج
-18. إدارة الأساتذة
-19. إدارة المواد
+16. إدارة الفصول ⚡ *تلقائي*
+17. إدارة الأفواج ⚡ *تلقائي*
+18. إدارة الأساتذة ⚡ *تلقائي*
+19. إدارة المواد ⚡ *تلقائي*
 20. إرسال إشعار لجميع المجموعات
 21. بث رسالة مخصصة
+
+📌 *ملاحظة:* العناصر المميزة بـ ⚡ تُجلب تلقائياً من استمارة الطلاب
 💡 أرسل رقم الخيار أو *إلغاء*${signature}`);
             userState.set(userId, { step: 'admin_menu', timestamp: Date.now() });
             return;
@@ -818,7 +820,54 @@ client.on('message_create', async message => {
                                 state.formData.number, messageId, userId, new Date().toISOString(), media.filename || `${state.pdfType}.pdf`
                             ]);
 
-                            await client.sendMessage(replyTo, `✅ *تم الحفظ بنجاح!*\nتم تأمين الملف في قاعدة البيانات والأرشيف بنجاح.${signature}`);
+                            // ========================================
+                            // حفظ البيانات تلقائياً من الاستمارة
+                            // (الفصول، الأفواج، الأساتذة، المواد)
+                            // ========================================
+                            let newItemsAdded = [];
+
+                            // إضافة الفصل إذا لم يكن موجوداً
+                            const className = state.formData.className.trim();
+                            if (className && !Array.from(classes.values()).includes(className)) {
+                                const classId = Date.now().toString();
+                                classes.set(classId, className);
+                                saveClasses();
+                                newItemsAdded.push(`🏫 فصل: ${className}`);
+                            }
+
+                            // إضافة الفوج إذا لم يكن موجوداً
+                            const groupName = state.formData.group.trim();
+                            if (groupName && !Array.from(groupsData.values()).includes(groupName)) {
+                                const groupIdNew = Date.now().toString() + '_g';
+                                groupsData.set(groupIdNew, groupName);
+                                saveGroups();
+                                newItemsAdded.push(`👥 فوج: ${groupName}`);
+                            }
+
+                            // إضافة الأستاذ إذا لم يكن موجوداً
+                            const professorName = state.formData.professor.trim();
+                            if (professorName && !Array.from(professors.values()).includes(professorName)) {
+                                const profId = Date.now().toString() + '_p';
+                                professors.set(profId, professorName);
+                                saveProfessors();
+                                newItemsAdded.push(`👨‍🏫 أستاذ: ${professorName}`);
+                            }
+
+                            // إضافة المادة إذا لم تكن موجودة
+                            const subjectName = state.formData.subject.trim();
+                            if (subjectName && !Array.from(subjects.values()).includes(subjectName)) {
+                                const subjId = Date.now().toString() + '_s';
+                                subjects.set(subjId, subjectName);
+                                saveSubjects();
+                                newItemsAdded.push(`📖 مادة: ${subjectName}`);
+                            }
+
+                            // إرسال رسالة نجاح مع العناصر الجديدة
+                            let successMsg = `✅ *تم الحفظ بنجاح!*\nتم تأمين الملف في قاعدة البيانات والأرشيف.`;
+                            if (newItemsAdded.length > 0) {
+                                successMsg += `\n\n🆕 *تم إضافة عناصر جديدة تلقائياً:*\n${newItemsAdded.join('\n')}`;
+                            }
+                            await client.sendMessage(replyTo, successMsg + signature);
                             userState.delete(userId);
                             await message.react('✅');
                         } catch (err) {
@@ -1045,12 +1094,21 @@ client.on('message_create', async message => {
                         return;
                     }
 
-                    // خيارات 15-19: إدارة البيانات
-                    if (option >= 15 && option <= 19) {
-                        const maps = { 15: 'sections', 16: 'classes', 17: 'groups', 18: 'professors', 19: 'subjects' };
-                        const names = { 15: 'شعبة', 16: 'فصل', 17: 'فوج', 18: 'أستاذ', 19: 'مادة' };
-                        await client.sendMessage(userId, `📋 *إدارة ${names[option]}*\n1. عرض الكل\n2. إضافة جديد\n3. تعديل\n4. حذف`);
-                        userState.set(userId, { step: `${maps[option]}_management_menu`, timestamp: Date.now() });
+                    // خيار 15: إدارة الشعب (يدوية)
+                    if (option === 15) {
+                        await client.sendMessage(userId, `📋 *إدارة الشعب*\n1. عرض الكل\n2. إضافة جديد\n3. تعديل\n4. حذف`);
+                        userState.set(userId, { step: 'sections_management_menu', timestamp: Date.now() });
+                        return;
+                    }
+
+                    // خيارات 16-19: بيانات تُجلب تلقائياً من الاستمارة
+                    // (الفصول، الأفواج، الأساتذة، المواد)
+                    if (option >= 16 && option <= 19) {
+                        const maps = { 16: 'classes', 17: 'groups', 18: 'professors', 19: 'subjects' };
+                        const names = { 16: 'فصل', 17: 'فوج', 18: 'أستاذ', 19: 'مادة' };
+                        const titles = { 16: 'الفصول', 17: 'الأفواج', 18: 'الأساتذة', 19: 'المواد' };
+                        await client.sendMessage(userId, `📋 *إدارة ${titles[option]}*\n📌 *ملاحظة:* يتم إضافة ${names[option]} تلقائياً من استمارة الطلاب\n\n1. عرض الكل\n2. حذف عنصر`);
+                        userState.set(userId, { step: `${maps[option]}_auto_management_menu`, timestamp: Date.now() });
                         return;
                     }
 
@@ -1409,90 +1467,162 @@ client.on('message_create', async message => {
                 }
 
                 // ================================
-                // إدارة البيانات (15-19)
+                // إدارة الشعب (يدوية - خيار 15)
                 // ================================
-                const adminMenus = {
-                    'sections': { map: sections, save: saveSections, name: 'شعبة', title: 'الشعب' },
+                if (state.step === 'sections_management_menu') {
+                    const option = parseInt(content);
+                    if (option === 1) {
+                        let list = `📋 *جميع الشعب*\n\n`;
+                        if (sections.size === 0) list += `⚠️ لا توجد شعب مضافة!\n`;
+                        sections.forEach((name, id) => { list += `${id}. ${name}\n`; });
+                        await client.sendMessage(userId, list);
+                        userState.delete(userId);
+                        return;
+                    }
+                    if (option === 2) {
+                        await client.sendMessage(userId, `➕ أرسل اسم الشعبة الجديدة:`);
+                        userState.set(userId, { step: 'add_sections', timestamp: Date.now() });
+                        return;
+                    }
+                    if (option === 3) {
+                        let list = `✏️ اختر رقم الشعبة للتعديل:\n`;
+                        sections.forEach((name, id) => { list += `${id}. ${name}\n`; });
+                        await client.sendMessage(userId, list);
+                        userState.set(userId, { step: 'edit_sections_select', timestamp: Date.now() });
+                        return;
+                    }
+                    if (option === 4) {
+                        let list = `🗑️ اختر رقم الشعبة للحذف:\n`;
+                        sections.forEach((name, id) => { list += `${id}. ${name}\n`; });
+                        await client.sendMessage(userId, list);
+                        userState.set(userId, { step: 'delete_sections_select', timestamp: Date.now() });
+                        return;
+                    }
+                }
+
+                // --- إضافة/تعديل/حذف الشعب ---
+                if (state.step === 'add_sections') {
+                    const newId = Date.now().toString();
+                    sections.set(newId, content.trim());
+                    saveSections();
+                    await client.sendMessage(userId, `✅ تمت إضافة الشعبة بنجاح!`);
+                    userState.delete(userId);
+                    return;
+                }
+
+                if (state.step === 'edit_sections_select') {
+                    if (!sections.has(content.trim())) {
+                        await client.sendMessage(userId, `⚠️ الرقم غير موجود!`);
+                        return;
+                    }
+                    await client.sendMessage(userId, `✏️ أرسل الاسم الجديد:`);
+                    userState.set(userId, { step: 'edit_sections_data', editId: content.trim(), timestamp: Date.now() });
+                    return;
+                }
+
+                if (state.step === 'edit_sections_data') {
+                    sections.set(state.editId, content.trim());
+                    saveSections();
+                    await client.sendMessage(userId, `✅ تم التعديل!`);
+                    userState.delete(userId);
+                    return;
+                }
+
+                if (state.step === 'delete_sections_select') {
+                    if (!sections.has(content.trim())) {
+                        await client.sendMessage(userId, `⚠️ الرقم غير موجود!`);
+                        return;
+                    }
+                    await client.sendMessage(userId, `🗑️ متأكد من الحذف؟ (نعم/لا)`);
+                    userState.set(userId, { step: 'delete_sections_confirm', delId: content.trim(), timestamp: Date.now() });
+                    return;
+                }
+
+                if (state.step === 'delete_sections_confirm') {
+                    if (content.toLowerCase() === 'نعم') {
+                        sections.delete(state.delId);
+                        saveSections();
+                        await client.sendMessage(userId, `✅ تم الحذف!`);
+                    }
+                    userState.delete(userId);
+                    return;
+                }
+
+                // ================================
+                // إدارة البيانات التلقائية (16-19)
+                // (الفصول، الأفواج، الأساتذة، المواد)
+                // تُجلب تلقائياً من استمارة الطلاب
+                // ================================
+                const autoDataMenus = {
                     'classes': { map: classes, save: saveClasses, name: 'فصل', title: 'الفصول' },
                     'groups': { map: groupsData, save: saveGroups, name: 'فوج', title: 'الأفواج' },
                     'professors': { map: professors, save: saveProfessors, name: 'أستاذ', title: 'الأساتذة' },
                     'subjects': { map: subjects, save: saveSubjects, name: 'مادة', title: 'المواد' }
                 };
 
-                for (const [key, data] of Object.entries(adminMenus)) {
-                    if (state.step === `${key}_management_menu`) {
+                for (const [key, data] of Object.entries(autoDataMenus)) {
+                    // --- قائمة الإدارة (عرض وحذف فقط) ---
+                    if (state.step === `${key}_auto_management_menu`) {
                         const option = parseInt(content);
                         if (option === 1) {
+                            // عرض الكل
                             let list = `📋 *جميع ${data.title}*\n\n`;
-                            if (data.map.size === 0) list += `⚠️ لا توجد بيانات!\n`;
-                            data.map.forEach((name, id) => { list += `${id}. ${name}\n`; });
+                            if (data.map.size === 0) {
+                                list += `⚠️ لا توجد بيانات!\n`;
+                                list += `📌 سيتم إضافة ${data.name} تلقائياً عند إضافة الطلاب للمحاضرات.\n`;
+                            } else {
+                                let index = 1;
+                                data.map.forEach((name, id) => {
+                                    list += `${index}. ${name}\n`;
+                                    index++;
+                                });
+                            }
                             await client.sendMessage(userId, list);
                             userState.delete(userId);
                             return;
                         }
                         if (option === 2) {
-                            await client.sendMessage(userId, `➕ أرسل اسم الـ ${data.name} الجديد:`);
-                            userState.set(userId, { step: `add_${key}`, timestamp: Date.now() });
-                            return;
-                        }
-                        if (option === 3) {
-                            let list = `✏️ اختر رقم الـ ${data.name} للتعديل:\n`;
-                            data.map.forEach((name, id) => { list += `${id}. ${name}\n`; });
+                            // حذف عنصر
+                            if (data.map.size === 0) {
+                                await client.sendMessage(userId, `⚠️ لا توجد بيانات للحذف!`);
+                                userState.delete(userId);
+                                return;
+                            }
+                            let list = `🗑️ *اختر ${data.name} للحذف:*\n\n`;
+                            let index = 1;
+                            const items = [];
+                            data.map.forEach((name, id) => {
+                                list += `${index}. ${name}\n`;
+                                items.push({ id, name });
+                                index++;
+                            });
+                            list += `\n💡 أرسل رقم العنصر أو *إلغاء*`;
                             await client.sendMessage(userId, list);
-                            userState.set(userId, { step: `edit_${key}_select`, timestamp: Date.now() });
-                            return;
-                        }
-                        if (option === 4) {
-                            let list = `🗑️ اختر رقم الـ ${data.name} للحذف:\n`;
-                            data.map.forEach((name, id) => { list += `${id}. ${name}\n`; });
-                            await client.sendMessage(userId, list);
-                            userState.set(userId, { step: `delete_${key}_select`, timestamp: Date.now() });
+                            userState.set(userId, { step: `delete_auto_${key}_select`, items: items, timestamp: Date.now() });
                             return;
                         }
                     }
 
-                    if (state.step === `add_${key}`) {
-                        const newId = Date.now().toString();
-                        data.map.set(newId, content.trim());
-                        data.save();
-                        await client.sendMessage(userId, `✅ تمت الإضافة بنجاح!`);
-                        userState.delete(userId);
-                        return;
-                    }
-
-                    if (state.step === `edit_${key}_select`) {
-                        if (!data.map.has(content.trim())) {
-                            await client.sendMessage(userId, `⚠️ الرقم غير موجود!`);
+                    // --- تأكيد الحذف للبيانات التلقائية ---
+                    if (state.step === `delete_auto_${key}_select`) {
+                        const option = parseInt(content);
+                        if (isNaN(option) || option < 1 || option > state.items.length) {
+                            await client.sendMessage(userId, `⚠️ خيار غير صحيح!`);
                             return;
                         }
-                        await client.sendMessage(userId, `✏️ أرسل الاسم الجديد:`);
-                        userState.set(userId, { step: `edit_${key}_data`, editId: content.trim(), timestamp: Date.now() });
+                        const itemToDelete = state.items[option - 1];
+                        await client.sendMessage(userId, `🗑️ متأكد من حذف "${itemToDelete.name}"؟ (نعم/لا)`);
+                        userState.set(userId, { step: `delete_auto_${key}_confirm`, delId: itemToDelete.id, delName: itemToDelete.name, timestamp: Date.now() });
                         return;
                     }
 
-                    if (state.step === `edit_${key}_data`) {
-                        data.map.set(state.editId, content.trim());
-                        data.save();
-                        await client.sendMessage(userId, `✅ تم التعديل!`);
-                        userState.delete(userId);
-                        return;
-                    }
-
-                    if (state.step === `delete_${key}_select`) {
-                        if (!data.map.has(content.trim())) {
-                            await client.sendMessage(userId, `⚠️ الرقم غير موجود!`);
-                            return;
-                        }
-                        await client.sendMessage(userId, `🗑️ متأكد من الحذف؟ (نعم/لا)`);
-                        userState.set(userId, { step: `delete_${key}_confirm`, delId: content.trim(), timestamp: Date.now() });
-                        return;
-                    }
-
-                    if (state.step === `delete_${key}_confirm`) {
+                    if (state.step === `delete_auto_${key}_confirm`) {
                         if (content.toLowerCase() === 'نعم') {
                             data.map.delete(state.delId);
                             data.save();
-                            await client.sendMessage(userId, `✅ تم الحذف!`);
+                            await client.sendMessage(userId, `✅ تم حذف "${state.delName}" بنجاح!`);
+                        } else {
+                            await client.sendMessage(userId, `❌ تم إلغاء الحذف.`);
                         }
                         userState.delete(userId);
                         return;
