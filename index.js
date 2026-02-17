@@ -191,6 +191,7 @@ function checkFonts() {
     return true;
 }
 
+
 async function generateLecturesTablePDF(lecturesData) {
     return new Promise((resolve, reject) => {
         try {
@@ -247,7 +248,63 @@ async function generateLecturesTablePDF(lecturesData) {
         } catch (error) { reject(error); }
     });
 }
+async function generateUserManualPDF() {
+    return new Promise((resolve, reject) => {
+        try {
+            if (!checkFonts()) {
+                reject(new Error('الخطوط المطلوبة غير موجودة.'));
+                return;
+            }
+            const fonts = {
+                Amiri: {
+                    normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'),
+                    bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf'),
+                }
+            };
+            const printer = new PdfPrinter(fonts);
+            
+            const docDefinition = {
+                defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 14, lineHeight: 1.5 },
+                content: [
+                    { text: '🤖 دليل استخدام البوت الأكاديمي 🤖', style: 'header' },
+                    { text: 'مرحباً بك في الأرشيف الذكي الخاص بدفعتنا. تم تصميم هذا النظام لتسهيل الوصول إلى المحاضرات والملخصات ومشاركتها بطريقة منظمة.\n\n', margin: [0, 0, 0, 10] },
+                    
+                    { text: '📌 الأوامر الأساسية:', style: 'subheader' },
+                    { text: '1. أمر التحميل: (!تحميل أو !download)', bold: true, color: '#2c3e50' },
+                    { text: 'استخدم هذا الأمر للبحث عن أي محاضرة أو ملخص. سيطرح عليك البوت خيارات (الشعبة، الفصل...) لتصل لملفك بدقة.\n\n' },
+                    
+                    { text: '2. أمر الإضافة: (!اضافة_pdf أو !add pdf)', bold: true, color: '#2c3e50' },
+                    { text: 'للمساهمة في الأرشيف، استخدم هذا الأمر. سيطلب منك البوت ملء استمارة قصيرة (المادة، الأستاذ، الفوج) ثم ترسل ملف الـ PDF ليتم حفظه.\n\n' },
 
+                    { text: '3. أمر الجدول: (!جدول_المحاضرات أو !lectures_table)', bold: true, color: '#2c3e50' },
+                    { text: 'سيرسل لك البوت ملف PDF يحتوي على قائمة مرتبة بجميع المحاضرات والملخصات المتوفرة في قاعدة البيانات.\n\n' },
+
+                    { text: '⚠️ تعليمات هامة:', style: 'subheader' },
+                    { ul: [
+                        'يرجى التأكد من صحة معلومات الاستمارة عند إضافة ملف جديد ليسهل على زملائك إيجاده.',
+                        'البوت يقبل ملفات بصيغة (PDF) فقط.',
+                        'يُمنع استخدام أوامر البوت لغير الغرض الدراسي لتجنب الحظر التلقائي.'
+                    ], margin: [0, 0, 0, 20] },
+
+                    { text: 'نتمنى لكم عاماً دراسياً موفقاً! 🎓', alignment: 'center', bold: true, fontSize: 16 },
+                    { text: 'Dev by: IRIZI', alignment: 'center', color: 'gray', fontSize: 10, margin: [0, 20, 0, 0] }
+                ],
+                styles: { 
+                    header: { fontSize: 24, bold: true, alignment: 'center', margin: [0, 0, 0, 20], color: '#2980b9' },
+                    subheader: { fontSize: 18, bold: true, margin: [0, 10, 0, 10], color: '#c0392b' }
+                },
+                pageOrientation: 'portrait', pageSize: 'A4'
+            };
+
+            const pdfDoc = printer.createPdfKitDocument(docDefinition);
+            const chunks = [];
+            pdfDoc.on('data', chunk => chunks.push(chunk));
+            pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
+            pdfDoc.on('error', error => reject(error));
+            pdfDoc.end();
+        } catch (error) { reject(error); }
+    });
+}
 // ============================================
 // دوال المساعدة
 // ============================================
@@ -343,6 +400,25 @@ client.on('message_create', async message => {
             return;
         }
 
+// --- أمر دليل الاستخدام ---
+        if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
+            if (!isGroupMessage) return; // ليعمل في المجموعات فقط
+            await message.react('📖');
+            await client.sendMessage(replyTo, `⏳ *جاري تجهيز كتاب الدليل...*${signature}`);
+            try {
+                const pdfBuffer = await generateUserManualPDF();
+                const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `دليل_الطالب.pdf`);
+                await client.sendMessage(replyTo, media, { caption: `📖 *دليل استخدام البوت الأكاديمي*\nإليك هذا الملف القصير الذي يشرح لك كيف تستفيد من البوت بأفضل طريقة. ✨${signature}` });
+            } catch (error) {
+                console.error(error);
+                await client.sendMessage(replyTo, `❌ *حدث خطأ!* لم أتمكن من إنشاء الدليل، يرجى المحاولة لاحقاً.${signature}`);
+            }
+            return;
+        }
+
+        
+
+        
         // --- لوحة الإدارة ---
         if (!isGroupMessage && userId === OWNER_ID && content === '!إدارة') {
             await client.sendMessage(userId, `🛠️ *لوحة تحكم المدير* 🛠️\n━━━━━━━━━━━━━━━━━━\n\n👥 *الأعضاء والمشرفين:*\n1. ➕ إضافة عضو\n2. ➖ حذف عضو\n3. ⬆️ ترقية عضو\n4. ⬇️ خفض مشرف\n5. 👨‍💻 إضافة مبرمج\n6. ❌ حذف مبرمج\n7. 🧹 تنظيف المجموعة\n\n⚙️ *إدارة المحتوى:*\n8. 📌 تثبيت رسالة\n9. 📊 جدول المحاضرات\n10. 📚 إدارة المحاضرات\n\n🗂️ *إدارة البيانات:*\n11. 🏷️ إدارة الشعب\n12. 🏫 إدارة الفصول (تلقائي)\n13. 👥 إدارة الأفواج (تلقائي)\n14. 👨‍🏫 إدارة الأساتذة (تلقائي)\n15. 📖 إدارة المواد (تلقائي)\n\n📢 *التواصل:*\n16. 🌐 بث لجميع المجموعات\n17. 🎯 بث لمجموعة مخصصة\n\n━━━━━━━━━━━━━━━━━━\n💡 _أرسل رقم الخيار لتنفيذه أو اكتب_ *إلغاء* _للخروج._${signature}`);
