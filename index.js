@@ -57,6 +57,7 @@ const groupsFile = './groups.json';
 const professorsFile = './professors.json';
 const subjectsFile = './subjects.json';
 
+// مجلد دليل الاستخدام (للفيديو والكتاب)
 const manualDir = path.join(__dirname, 'manual');
 if (!fs.existsSync(manualDir)) { fs.mkdirSync(manualDir, { recursive: true }); }
 
@@ -103,7 +104,13 @@ async function generateLecturesTablePDF(lecturesData) {
             const body = [
                 [ { text: 'التسلسل', bold: true }, { text: 'المادة', bold: true }, { text: 'رقم المحاضرة', bold: true }, { text: 'الأستاذ', bold: true }, { text: 'الفوج', bold: true }, { text: 'التاريخ', bold: true } ]
             ];
-            lecturesData.forEach((lecture, index) => {
+            
+            // فلترة المحاضرات للتأكد من أنها تعود لعناصر نشطة فقط
+            const activeProfs = Array.from(professors.values());
+            const activeSubjects = Array.from(subjects.values());
+            const validLectures = lecturesData.filter(l => activeProfs.includes(l.professor_name) && activeSubjects.includes(l.subject_name));
+
+            validLectures.forEach((lecture, index) => {
                 const date = lecture.date_added ? new Date(lecture.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
                 body.push([ (index + 1).toString(), lecture.subject_name || '', lecture.lecture_number || '', lecture.professor_name || '', lecture.group_name || '', date ]);
             });
@@ -394,8 +401,17 @@ client.on('message_create', async message => {
                 try {
                     const query = `SELECT DISTINCT class_name FROM lectures WHERE type = $1 AND section_name = $2`;
                     const res = await db.query(query, [state.pdfType, state.sectionName]);
-                    if (res.rows.length === 0) { await client.sendMessage(replyTo, `⚠️ لا توجد ${state.pdfType} متوفرة لشعبة "${state.sectionName}".${signature}`); userState.delete(userId); return; }
-                    state.availableClasses = res.rows.map(row => row.class_name); state.step = 'select_class_for_download'; userState.set(userId, state);
+                    
+                    // [الفلتر الذكي] إخفاء الفصول التي تم حذفها من لوحة الإدارة
+                    const activeClasses = Array.from(classes.values());
+                    state.availableClasses = res.rows.map(row => row.class_name).filter(c => activeClasses.includes(c));
+                    
+                    if (state.availableClasses.length === 0) { 
+                        await client.sendMessage(replyTo, `⚠️ لا توجد فصول متاحة حالياً لشعبة "${state.sectionName}".${signature}`); 
+                        userState.delete(userId); return; 
+                    }
+                    
+                    state.step = 'select_class_for_download'; userState.set(userId, state);
                     let classesList = `🏫 *اختر الفصل:*\n━━━━━━━━━━━━━━━━━━\n`;
                     state.availableClasses.forEach((className, index) => { classesList += `${index + 1}. الفصل: ${className}\n`; });
                     await client.sendMessage(replyTo, classesList + `\n💡 _أرسل رقم الفصل أو اكتب_ *إلغاء*${signature}`);
@@ -410,10 +426,20 @@ client.on('message_create', async message => {
                 try {
                     const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY id DESC`;
                     const res = await db.query(query, [state.pdfType, state.sectionName, state.className]);
-                    if (res.rows.length === 0) { await client.sendMessage(replyTo, `⚠️ لا توجد ملفات متوفرة.${signature}`); userState.delete(userId); return; }
-                    state.availableLectures = res.rows; state.step = 'select_lecture_for_download'; userState.set(userId, state);
+                    
+                    // [الفلتر الذكي] إخفاء المحاضرات للأساتذة أو المواد المحذوفة
+                    const activeProfs = Array.from(professors.values());
+                    const activeSubjects = Array.from(subjects.values());
+                    const filteredLectures = res.rows.filter(l => activeProfs.includes(l.professor_name) && activeSubjects.includes(l.subject_name));
+
+                    if (filteredLectures.length === 0) { 
+                        await client.sendMessage(replyTo, `⚠️ لا توجد ملفات متوفرة.${signature}`); 
+                        userState.delete(userId); return; 
+                    }
+                    
+                    state.availableLectures = filteredLectures; state.step = 'select_lecture_for_download'; userState.set(userId, state);
                     let lecturesList = `📄 *قائمة الملفات المتوفرة:*\n━━━━━━━━━━━━━━━━━━\n`;
-                    res.rows.forEach((lecture, index) => { lecturesList += `${index + 1}. 📖 ${lecture.subject_name} | 📝 رقم: ${lecture.lecture_number}\n   👨‍🏫 الأستاذ: ${lecture.professor_name}\n\n`; });
+                    filteredLectures.forEach((lecture, index) => { lecturesList += `${index + 1}. 📖 ${lecture.subject_name} | 📝 رقم: ${lecture.lecture_number}\n   👨‍🏫 الأستاذ: ${lecture.professor_name}\n\n`; });
                     await client.sendMessage(replyTo, lecturesList + `💡 _أرسل رقم الملف لتحميله أو اكتب_ *إلغاء*${signature}`);
                 } catch (err) { userState.delete(userId); }
                 return;
@@ -592,19 +618,24 @@ client.on('message_create', async message => {
             }
             if (state.step === 'delete_sections_confirm') { 
                 if (content.toLowerCase() === 'نعم') { 
+                    const secName = sections.get(state.delId);
+                    try { 
+                        // الحذف الجذري من قاعدة البيانات
+                        await db.query(`DELETE FROM lectures WHERE section_name = $1`, [secName]); 
+                        await db.query(`DELETE FROM sections WHERE name = $1`, [secName]); 
+                    } catch(e) { console.error('DB error', e); } 
                     sections.delete(state.delId); saveSections(); 
-                    try { await db.query(`DELETE FROM lectures WHERE section_id = $1`, [state.delId]); } catch(e) {} 
-                    await client.sendMessage(userId, `✅ *تم الحذف!* ✨\nتم إزالة الشعبة وكل المحاضرات المرتبطة بها.${signature}`); 
+                    await client.sendMessage(userId, `✅ *تم الحذف!* ✨\nتم إزالة الشعبة وكل المحاضرات المرتبطة بها نهائياً.`); 
                 } 
                 userState.delete(userId); return; 
             }
 
-            // الإدارة التلقائية (12-15) - [إضافة خاصية الحذف من قاعدة البيانات]
+            // الإدارة التلقائية (12-15) - [الربط الجذري مع قاعدة البيانات والفلتر]
             const autoDataMenus = {
-                'classes': { map: classes, save: saveClasses, title: 'الفصول', dbCol: 'class_name' },
-                'groups': { map: groupsData, save: saveGroups, title: 'الأفواج', dbCol: 'group_name' },
-                'professors': { map: professors, save: saveProfessors, title: 'الأساتذة', dbCol: 'professor_name' },
-                'subjects': { map: subjects, save: saveSubjects, title: 'المواد', dbCol: 'subject_name' }
+                'classes': { map: classes, save: saveClasses, title: 'الفصول', dbCol: 'class_name', table: 'classes' },
+                'groups': { map: groupsData, save: saveGroups, title: 'الأفواج', dbCol: 'group_name', table: 'course_groups' },
+                'professors': { map: professors, save: saveProfessors, title: 'الأساتذة', dbCol: 'professor_name', table: 'professors' },
+                'subjects': { map: subjects, save: saveSubjects, title: 'المواد', dbCol: 'subject_name', table: 'subjects' }
             };
             for (const [key, data] of Object.entries(autoDataMenus)) {
                 if (state.step === `${key}_auto_management_menu`) {
@@ -613,17 +644,21 @@ client.on('message_create', async message => {
                 }
                 if (state.step === `delete_auto_${key}_select`) { 
                     const item = state.items[parseInt(content) - 1]; if (!item) return; 
-                    await client.sendMessage(userId, `🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)\n⚠️ *تنبيه هام:* سيتم حذف جميع المحاضرات المتعلقة بهذا العنصر من قاعدة البيانات أيضاً!${signature}`); 
+                    await client.sendMessage(userId, `🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)\n⚠️ *تنبيه هام:* سيتم حذفه من القوائم وتنظيف جميع المحاضرات المتعلقة به من قاعدة البيانات نهائياً!${signature}`); 
                     userState.set(userId, { step: `delete_auto_${key}_confirm`, delId: item.id, delName: item.n }); return; 
                 }
                 if (state.step === `delete_auto_${key}_confirm`) { 
                     if (content.toLowerCase() === 'نعم') { 
                         data.map.delete(state.delId); data.save(); 
                         try { 
+                            // 1. مسح المحاضرات المرتبطة بهذا العنصر من الأرشيف (lectures)
                             await db.query(`DELETE FROM lectures WHERE ${data.dbCol} = $1`, [state.delName]); 
-                            await client.sendMessage(userId, `✅ *تم الحذف بنجاح!* ✨\nتم إخفاء العنصر وحذف جميع الملفات المرتبطة به.${signature}`); 
+                            // 2. مسحه من الجداول الأساسية لمنع أي تعارض (classes, subjects...)
+                            await db.query(`DELETE FROM ${data.table} WHERE name = $1`, [state.delName]); 
+                            await client.sendMessage(userId, `✅ *تم الحذف بنجاح!* ✨\nتم مسح العنصر وتنظيف قاعدة البيانات من كل ما يتعلق به.`); 
                         } catch(e) { 
-                            await client.sendMessage(userId, `⚠️ تم حذفه من القائمة ولكن حدث خطأ في تنظيف قاعدة البيانات.${signature}`); 
+                            console.error(e);
+                            await client.sendMessage(userId, `⚠️ تم إخفاؤه من القائمة بنجاح للمستخدمين! (تنبيه: حدث تجاوز أثناء تنظيف قاعدة البيانات).${signature}`); 
                         } 
                     } 
                     userState.delete(userId); return; 
