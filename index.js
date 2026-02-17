@@ -264,7 +264,7 @@ async function generateUserManualPDF() {
             const printer = new PdfPrinter(fonts);
             
             const docDefinition = {
-                defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 14, lineHeight: 1.5 },
+                defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 14, lineHeight: 1.5, textDirection: 'rtl' },
                 content: [
                     { text: '🤖 دليل استخدام البوت الأكاديمي 🤖', style: 'header' },
                     { text: 'مرحباً بك في الأرشيف الذكي الخاص بدفعتنا. تم تصميم هذا النظام لتسهيل الوصول إلى المحاضرات والملخصات ومشاركتها بطريقة منظمة.\n\n', margin: [0, 0, 0, 10] },
