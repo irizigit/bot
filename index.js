@@ -57,11 +57,8 @@ const groupsFile = './groups.json';
 const professorsFile = './professors.json';
 const subjectsFile = './subjects.json';
 
-// مجلد دليل الاستخدام (للفيديو والكتاب)
 const manualDir = path.join(__dirname, 'manual');
-if (!fs.existsSync(manualDir)) {
-    fs.mkdirSync(manualDir, { recursive: true });
-}
+if (!fs.existsSync(manualDir)) { fs.mkdirSync(manualDir, { recursive: true }); }
 
 // ============================================
 // دوال تحميل وحفظ البيانات
@@ -177,7 +174,7 @@ client.on('message_create', async message => {
         const currentGroupId = isGroupMessage ? message.from : groupId;
         const replyTo = isGroupMessage ? currentGroupId : userId;
 
-        // --- أمر دليل الاستخدام (الفيديو والكتاب المخصص) ---
+        // --- أمر دليل الاستخدام ---
         if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
             if (!isGroupMessage) return; 
             await message.react('📖');
@@ -187,23 +184,20 @@ client.on('message_create', async message => {
             
             let filesSent = false;
 
-            // إرسال الفيديو إذا كان موجوداً
             if (fs.existsSync(videoPath)) {
                 const videoMedia = MessageMedia.fromFilePath(videoPath);
                 await client.sendMessage(replyTo, videoMedia, { caption: `🎥 *فيديو توضيحي لطريقة الاستخدام*${signature}` });
                 filesSent = true;
             }
 
-            // إرسال الكتاب (PDF) إذا كان موجوداً
             if (fs.existsSync(pdfPath)) {
                 const pdfMedia = MessageMedia.fromFilePath(pdfPath);
                 await client.sendMessage(replyTo, pdfMedia, { caption: `📖 *كتاب دليل الاستخدام*\nاقرأ هذا الدليل لمعرفة جميع ميزات البوت وكيفية استغلالها بالشكل الصحيح. ✨${signature}` });
                 filesSent = true;
             }
 
-            // إذا لم يقم المدير برفع أي ملف بعد
             if (!filesSent) {
-                await client.sendMessage(replyTo, `⚠️ *دليل الاستخدام قيد الإعداد حالياً!*\nيرجى الانتظار حتى يقوم الإدارة برفعه قريباً.${signature}`);
+                await client.sendMessage(replyTo, `⚠️ *دليل الاستخدام قيد الإعداد حالياً!*\nيرجى الانتظار حتى تقوم الإدارة برفعه قريباً.${signature}`);
             }
             return;
         }
@@ -234,16 +228,11 @@ client.on('message_create', async message => {
         if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
             try {
                 const res = await db.query('SELECT subject_name, lecture_number, professor_name, group_name, date_added FROM lectures ORDER BY id ASC');
-                if (res.rows.length === 0) {
-                    await client.sendMessage(replyTo, `⚠️ *عذراً!* لا توجد محاضرات مضافة حتى الآن.${signature}`);
-                    return;
-                }
+                if (res.rows.length === 0) { await client.sendMessage(replyTo, `⚠️ *عذراً!* لا توجد محاضرات مضافة حتى الآن.${signature}`); return; }
                 const pdfBuffer = await generateLecturesTablePDF(res.rows);
                 const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`);
                 await client.sendMessage(replyTo, media, { caption: `📊 *إليك جدول المحاضرات محدثاً* ✨${signature}` });
-            } catch (error) {
-                await client.sendMessage(replyTo, `❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`);
-            }
+            } catch (error) { await client.sendMessage(replyTo, `❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); }
             return;
         }
 
@@ -318,9 +307,7 @@ client.on('message_create', async message => {
             if (state.step === 'select_pdf_type') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2) { await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!* يرجى اختيار 1 للمحاضرة أو 2 للملخص.${signature}`); return; }
-                state.pdfType = option === 1 ? 'محاضرة' : 'ملخص';
-                state.step = 'select_section';
-                userState.set(userId, state);
+                state.pdfType = option === 1 ? 'محاضرة' : 'ملخص'; state.step = 'select_section'; userState.set(userId, state);
                 let sectionsList = `📚 *اختر الشعبة:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1;
                 for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
                 await client.sendMessage(replyTo, sectionsList + `\n💡 _أرسل رقم الشعبة أو اكتب_ *إلغاء*${signature}`);
@@ -364,7 +351,6 @@ client.on('message_create', async message => {
                             const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
                             await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.formData.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userId, new Date().toISOString(), media.filename || `${state.pdfType}.pdf`]);
 
-                            // إضافة للبيانات التلقائية
                             let newItemsAdded = [];
                             const className = state.formData.className.trim();
                             if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
@@ -454,10 +440,8 @@ client.on('message_create', async message => {
             if (userId === OWNER_ID && state.step === 'admin_menu') {
                 const option = parseInt(content);
                 
-                // إضافة / حذف مبرمج
                 if (option === 5) { await client.sendMessage(userId, `📞 *أرسل رقم المبرمج الجديد* (مثال: 212600000000):${signature}`); userState.set(userId, { step: 'add_dev_number' }); return; }
                 if (option === 6) { await client.sendMessage(userId, `📞 *أرسل رقم المبرمج لإزالته* (مثال: 212600000000):${signature}`); userState.set(userId, { step: 'remove_dev_number' }); return; }
-
                 if (option === 8) { await client.sendMessage(userId, `📌 *لتثبيت رسالة:*\nفي المجموعة، اعمل "رد/Reply" للرسالة المطلوبة واكتب الأمر:\n*!تثبيت*${signature}`); userState.delete(userId); return; }
 
                 if (option === 9) {
@@ -480,18 +464,8 @@ client.on('message_create', async message => {
 
                 if (option === 16) { await client.sendMessage(userId, `📢 *بث رسالة عامة*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن النص الذي ترغب في بثه لجميع المجموعات:${signature}`); userState.set(userId, { step: 'broadcast_message' }); return; }
 
-                // خيارات الدليل الجديدة (18، 19)
-                if (option === 18) {
-                    await client.sendMessage(userId, `📚 *رفع كتاب الدليل*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *PDF* الخاص بكتاب دليل الاستخدام.\n(سيتم استبدال الملف القديم إذا كان موجوداً)${signature}`);
-                    userState.set(userId, { step: 'waiting_for_manual_pdf' });
-                    return;
-                }
-                
-                if (option === 19) {
-                    await client.sendMessage(userId, `🎥 *رفع فيديو الشرح*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *Video (MP4)* الخاص بشرح الاستخدام.\n⚠️ ملاحظة: يُفضل أن لا يتجاوز حجم الفيديو 16 ميغابايت لتجنب مشاكل الإرسال في الواتساب.${signature}`);
-                    userState.set(userId, { step: 'waiting_for_manual_video' });
-                    return;
-                }
+                if (option === 18) { await client.sendMessage(userId, `📚 *رفع كتاب الدليل*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *PDF* الخاص بكتاب دليل الاستخدام.\n(سيتم استبدال الملف القديم إذا كان موجوداً)${signature}`); userState.set(userId, { step: 'waiting_for_manual_pdf' }); return; }
+                if (option === 19) { await client.sendMessage(userId, `🎥 *رفع فيديو الشرح*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *Video (MP4)* الخاص بشرح الاستخدام.\n⚠️ ملاحظة: يُفضل أن لا يتجاوز حجم الفيديو 16 ميغابايت لتجنب مشاكل الإرسال في الواتساب.${signature}`); userState.set(userId, { step: 'waiting_for_manual_video' }); return; }
 
                 // تنفيذ الخيارات التي تتطلب اختيار مجموعة (1, 2, 3, 4, 7, 17)
                 if ([1, 2, 3, 4, 7, 17].includes(option)) {
@@ -611,18 +585,49 @@ client.on('message_create', async message => {
             if (state.step === 'add_sections') { sections.set(Date.now().toString(), content.trim()); saveSections(); await client.sendMessage(userId, `✅ *تم إضافة الشعبة!* ✨${signature}`); userState.delete(userId); return; }
             if (state.step === 'edit_sections_select') { const id = state.items[parseInt(content) - 1]; if (!id) return; await client.sendMessage(userId, `✏️ *أرسل الاسم الجديد:*${signature}`); userState.set(userId, { step: 'edit_sections_data', editId: id }); return; }
             if (state.step === 'edit_sections_data') { sections.set(state.editId, content.trim()); saveSections(); await client.sendMessage(userId, `✅ *تم التعديل!* ✨${signature}`); userState.delete(userId); return; }
-            if (state.step === 'delete_sections_select') { const id = state.items[parseInt(content) - 1]; if (!id) return; await client.sendMessage(userId, `🗑️ *متأكد من الحذف؟* (نعم/لا)${signature}`); userState.set(userId, { step: 'delete_sections_confirm', delId: id }); return; }
-            if (state.step === 'delete_sections_confirm') { if (content.toLowerCase() === 'نعم') { sections.delete(state.delId); saveSections(); await client.sendMessage(userId, `✅ *تم الحذف!* ✨${signature}`); } userState.delete(userId); return; }
+            if (state.step === 'delete_sections_select') {
+                const id = state.items[parseInt(content) - 1]; if (!id) return; 
+                await client.sendMessage(userId, `🗑️ *متأكد من الحذف؟* (نعم/لا)\n⚠️ *تنبيه:* سيتم حذف الشعبة وجميع المحاضرات المتعلقة بها نهائياً!${signature}`); 
+                userState.set(userId, { step: 'delete_sections_confirm', delId: id }); return; 
+            }
+            if (state.step === 'delete_sections_confirm') { 
+                if (content.toLowerCase() === 'نعم') { 
+                    sections.delete(state.delId); saveSections(); 
+                    try { await db.query(`DELETE FROM lectures WHERE section_id = $1`, [state.delId]); } catch(e) {} 
+                    await client.sendMessage(userId, `✅ *تم الحذف!* ✨\nتم إزالة الشعبة وكل المحاضرات المرتبطة بها.${signature}`); 
+                } 
+                userState.delete(userId); return; 
+            }
 
-            // الإدارة التلقائية (12-15)
-            const autoDataMenus = { 'classes': { map: classes, save: saveClasses, title: 'الفصول' }, 'groups': { map: groupsData, save: saveGroups, title: 'الأفواج' }, 'professors': { map: professors, save: saveProfessors, title: 'الأساتذة' }, 'subjects': { map: subjects, save: saveSubjects, title: 'المواد' } };
+            // الإدارة التلقائية (12-15) - [إضافة خاصية الحذف من قاعدة البيانات]
+            const autoDataMenus = {
+                'classes': { map: classes, save: saveClasses, title: 'الفصول', dbCol: 'class_name' },
+                'groups': { map: groupsData, save: saveGroups, title: 'الأفواج', dbCol: 'group_name' },
+                'professors': { map: professors, save: saveProfessors, title: 'الأساتذة', dbCol: 'professor_name' },
+                'subjects': { map: subjects, save: saveSubjects, title: 'المواد', dbCol: 'subject_name' }
+            };
             for (const [key, data] of Object.entries(autoDataMenus)) {
                 if (state.step === `${key}_auto_management_menu`) {
                     if (parseInt(content) === 1) { let list = `📋 *جميع ${data.title}:*\n━━━━━━━━━━━━━━━━━━\n`; data.map.forEach((n) => { list += `- ${n}\n`; }); await client.sendMessage(userId, list + signature); userState.delete(userId); return; }
                     if (parseInt(content) === 2) { let list = `🗑️ *اختر للحذف:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1; const arr = []; data.map.forEach((n, id) => { list += `${index++}. ${n}\n`; arr.push({ id, n }); }); await client.sendMessage(userId, list + `\n💡 _أرسل الرقم:_`); userState.set(userId, { step: `delete_auto_${key}_select`, items: arr }); return; }
                 }
-                if (state.step === `delete_auto_${key}_select`) { const item = state.items[parseInt(content) - 1]; if (!item) return; await client.sendMessage(userId, `🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)${signature}`); userState.set(userId, { step: `delete_auto_${key}_confirm`, delId: item.id }); return; }
-                if (state.step === `delete_auto_${key}_confirm`) { if (content.toLowerCase() === 'نعم') { data.map.delete(state.delId); data.save(); await client.sendMessage(userId, `✅ *تم الحذف!* ✨${signature}`); } userState.delete(userId); return; }
+                if (state.step === `delete_auto_${key}_select`) { 
+                    const item = state.items[parseInt(content) - 1]; if (!item) return; 
+                    await client.sendMessage(userId, `🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)\n⚠️ *تنبيه هام:* سيتم حذف جميع المحاضرات المتعلقة بهذا العنصر من قاعدة البيانات أيضاً!${signature}`); 
+                    userState.set(userId, { step: `delete_auto_${key}_confirm`, delId: item.id, delName: item.n }); return; 
+                }
+                if (state.step === `delete_auto_${key}_confirm`) { 
+                    if (content.toLowerCase() === 'نعم') { 
+                        data.map.delete(state.delId); data.save(); 
+                        try { 
+                            await db.query(`DELETE FROM lectures WHERE ${data.dbCol} = $1`, [state.delName]); 
+                            await client.sendMessage(userId, `✅ *تم الحذف بنجاح!* ✨\nتم إخفاء العنصر وحذف جميع الملفات المرتبطة به.${signature}`); 
+                        } catch(e) { 
+                            await client.sendMessage(userId, `⚠️ تم حذفه من القائمة ولكن حدث خطأ في تنظيف قاعدة البيانات.${signature}`); 
+                        } 
+                    } 
+                    userState.delete(userId); return; 
+                }
             }
 
         }
