@@ -175,10 +175,26 @@ client.on('qr', qr => { qrcode.generate(qr, { small: true }); });
 client.on('ready', async () => {
     console.log('[✅] Client ready!');
     isBotReady = true;
+    
+    // جلب بيانات المجموعات
     const chats = await client.getChats();
-    for (const chat of chats) { if (chat.isGroup) { groupsMetadata.set(chat.id._serialized, chat.name); } }
-});
+    for (const chat of chats) { 
+        if (chat.isGroup) { 
+            groupsMetadata.set(chat.id._serialized, chat.name); 
+        } 
+    }
 
+    // --- إرسال رسالة الإشعار للمدير عند التشغيل ---
+    try {
+        const startupMessage = `✅ *تم تشغيل النظام بنجاح!* 🚀\nالبوت الآن متصل بالخادم وجاهز لاستقبال الأوامر.${signature}`;
+        // إرسال الإشعار لرقمك المغربي
+        await client.sendMessage(OWNER_ID, startupMessage);
+        // إرسال الإشعار لرقمك الأجنبي (المدير الثاني)
+        await client.sendMessage(SECOND_OWNER, startupMessage);
+    } catch (error) {
+        console.error('⚠️ لم أتمكن من إرسال إشعار التشغيل:', error);
+    }
+});
 client.on('message_create', async message => {
     try {
         if (!isBotReady || !message) return;
