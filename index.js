@@ -533,8 +533,7 @@ client.on('message_create', async message => {
                             await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), media.filename || `${state.pdfType}.pdf`]);
 
                             let newItemsAdded = [];
-                            const className = state.className.trim();
-                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
+                            
                             const groupName = state.formData.group.trim();
                             if (groupName && !Array.from(groupsData.values()).includes(groupName)) { groupsData.set(Date.now().toString() + '_g', groupName); saveGroups(); newItemsAdded.push(`👥 فوج: ${groupName}`); }
                             const professorName = state.formData.professor.trim();
@@ -591,8 +590,7 @@ client.on('message_create', async message => {
                             await db.query(query, ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), fileName]);
 
                             let newItemsAdded = [];
-                            const className = state.className.trim();
-                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
+                            
                             const professorName = state.formData.professor.trim();
                             if (professorName && !Array.from(professors.values()).includes(professorName)) { professors.set(Date.now().toString() + '_p', professorName); saveProfessors(); newItemsAdded.push(`👨‍🏫 أستاذ: ${professorName}`); }
                             const subjectName = state.formData.subject.trim();
