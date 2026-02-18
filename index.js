@@ -348,14 +348,27 @@ client.on('message_create', async message => {
             return;
         }
 
-        if (content === '!تحميل' || content === '!download') {
+       if (content === '!تحميل' || content === '!download') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await client.sendMessage(replyTo, `⚠️ *لم يتم إعداد بيانات الشعب بعد!*${signature}`); return; }
-            await client.sendMessage(replyTo, `📥 *تحميل ملف* 📥\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار نوع الملف الذي تبحث عنه:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
+            await client.sendMessage(replyTo, `📥 *تحميل الملفات والامتحانات* 📥\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار النوع الذي تبحث عنه:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n3️⃣ 📸 امتحان\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'select_pdf_type_for_download' });
             return;
         }
 
+        // --- أمر إضافة امتحان (صورة) ---
+        if (content === '!اضافة_امتحان' || content === '!add exam') {
+            if (!isGroupMessage) return;
+            if (sections.size === 0) { await client.sendMessage(replyTo, `⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
+            await client.sendMessage(replyTo, `📸 *إضافة امتحان جديد* 📸\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار الشعبة الخاصة بهذا الامتحان:\n`);
+            
+            let sectionsList = ``; let index = 1;
+            for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
+            await client.sendMessage(replyTo, sectionsList + `\n💡 _أرسل رقم الشعبة أو اكتب_ *إلغاء*${signature}`);
+            
+            updateState(userIdRaw, replyTo, { step: 'select_section_for_exam', pdfType: 'امتحان' });
+            return;
+        }
         // ================================
         // معالج الحالات للعمليات (State Handler)
         // ================================
@@ -468,19 +481,87 @@ client.on('message_create', async message => {
                 } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال ملف PDF!*${signature}`); }
                 return;
             }
+// ==========================================
+            // --- عمليات إضافة امتحان (استقبال الصورة) ---
+            // ==========================================
+            if (state.step === 'select_section_for_exam') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > sections.size) { await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!* يرجى اختيار رقم الشعبة الصحيح.${signature}`); return; }
+                const sectionId = Array.from(sections.keys())[option - 1];
+                state.sectionId = sectionId; state.sectionName = sections.get(sectionId); state.step = 'waiting_exam_form'; 
+                updateState(userIdRaw, replyTo, state);
+                await client.sendMessage(replyTo, `✅ *رائع!* يرجى نسخ الاستمارة التالية وملئها بدقة:\n\nسنة الامتحان (أو الدورة): \nاسم الفصل: \nالمادة: \nالأستاذ: \n\n⚠️ *ملاحظة:* املأ البيانات بعد النقطتين (:) ثم أرسلها في رسالة واحدة.${signature}`);
+                return;
+            }
 
+            if (state.step === 'waiting_exam_form') {
+                const lines = content.split('\n'); const info = {};
+                lines.forEach(line => {
+                    if (line.includes('سنة') || line.includes('دورة')) info.number = line.split(':')[1]?.trim();
+                    if (line.includes('الفصل')) info.className = line.split(':')[1]?.trim();
+                    if (line.includes('المادة')) info.subject = line.split(':')[1]?.trim();
+                    if (line.includes('الأستاذ') || line.includes('الاستاد')) info.professor = line.split(':')[1]?.trim();
+                });
+                if (!info.number || !info.className || !info.subject || !info.professor) { await client.sendMessage(replyTo, `⚠️ *الاستمارة ناقصة!* يرجى ملء كافة البيانات.${signature}`); return; }
+                state.formData = info; 
+                state.formData.group = 'عام'; // الامتحانات غالباً موحدة لجميع الأفواج
+                state.step = 'waiting_exam_image'; 
+                updateState(userIdRaw, replyTo, state);
+                await client.sendMessage(replyTo, `✅ *تم استلام البيانات.* يرجى الآن إرسال *صورة الامتحان* 📸.${signature}`);
+                return;
+            }
+
+            if (state.step === 'waiting_exam_image') {
+                if (message.hasMedia && message.type === 'image') {
+                    const media = await message.downloadMedia();
+                    if (media.mimetype.startsWith('image/')) {
+                        await message.react('⏳');
+                        const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n🗓️ السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.formData.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
+
+                        try {
+                            const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
+                            const messageId = archiveMsg.id._serialized;
+                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
+                            await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.formData.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), media.filename || `exam_${Date.now()}.jpg`]);
+
+                            let newItemsAdded = [];
+                            const className = state.formData.className.trim();
+                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
+                            const professorName = state.formData.professor.trim();
+                            if (professorName && !Array.from(professors.values()).includes(professorName)) { professors.set(Date.now().toString() + '_p', professorName); saveProfessors(); newItemsAdded.push(`👨‍🏫 أستاذ: ${professorName}`); }
+                            const subjectName = state.formData.subject.trim();
+                            if (subjectName && !Array.from(subjects.values()).includes(subjectName)) { subjects.set(Date.now().toString() + '_s', subjectName); saveSubjects(); newItemsAdded.push(`📖 مادة: ${subjectName}`); }
+
+                            let successMsg = `✅ *تم حفظ الامتحان بنجاح!* ✨\nتم تأمين الصورة في قاعدة البيانات.`;
+                            if (newItemsAdded.length > 0) successMsg += `\n\n🆕 *تم إضافة عناصر جديدة تلقائياً:*\n${newItemsAdded.join('\n')}`;
+                            await client.sendMessage(replyTo, successMsg + signature);
+                            clearState(userIdRaw); await message.react('✅');
+                        } catch (err) {
+                            await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء الحفظ في القاعدة!* تم الرفع للأرشيف فقط.${signature}`);
+                            clearState(userIdRaw);
+                        }
+                    } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال صورة فقط (Image)!*${signature}`); }
+                } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال صورة الامتحان!*${signature}`); }
+                return;
+            }
             // --- عمليات تحميل PDF (الطلاب) مع الفلتر الذكي ---
+            // --- عمليات تحميل (محاضرة/ملخص/امتحان) للطلاب ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
-                if (option !== 1 && option !== 2) return await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!*${signature}`);
-                state.pdfType = option === 1 ? 'محاضرة' : 'ملخص'; state.step = 'select_section_for_download'; 
+                if (option !== 1 && option !== 2 && option !== 3) return await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!*${signature}`);
+                
+                if (option === 1) state.pdfType = 'محاضرة';
+                if (option === 2) state.pdfType = 'ملخص';
+                if (option === 3) state.pdfType = 'امتحان';
+
+                state.step = 'select_section_for_download'; 
                 updateState(userIdRaw, replyTo, state);
                 let sectionsList = `📚 *اختر الشعبة:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1;
                 for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
                 await client.sendMessage(replyTo, sectionsList + `\n💡 _أرسل رقم الشعبة أو اكتب_ *إلغاء*${signature}`);
                 return;
             }
-
+            
             if (state.step === 'select_section_for_download') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > sections.size) return await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!*${signature}`);
