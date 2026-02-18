@@ -203,22 +203,35 @@ client.on('message_create', async message => {
         // --- أمر قفل المجموعة ---
         if (content === '!قفل' || content === '!lock') {
             if (!isGroupMessage) return;
-            if (await isAdmin(userId, currentGroupId)) {
-                if (await isBotAdmin(currentGroupId)) {
-                    try {
-                        await client.sendMessage(replyTo, `⏳ *جاري تنفيذ الأمر...*${signature}`);
-                        const chat = await message.getChat();
-                        await chat.setMessagesAdminsOnly(true);
-                        await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
-                    } catch (error) {
-                        console.error(error);
-                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.*${signature}`);
-                    }
-                } else {
-                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من إغلاق المجموعة.${signature}`);
+            const chat = await message.getChat();
+            
+            let isSenderAdmin = (userId === OWNER_ID || admins.has(userId));
+            let isBotGroupAdmin = false;
+            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
+
+            // فحص صلاحيات جميع الأعضاء المباشرة من المحادثة
+            for (let participant of chat.participants) {
+                const pId = participant.id._serialized.replace(/:\d+@/, '@');
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    if (pId === userId) isSenderAdmin = true;
+                    if (pId === botIdClean) isBotGroupAdmin = true;
                 }
-            } else {
-                await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
+            }
+
+            if (!isSenderAdmin) {
+                return await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
+            }
+            if (!isBotGroupAdmin) {
+                return await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من إغلاق المجموعة.${signature}`);
+            }
+
+            try {
+                await client.sendMessage(replyTo, `⏳ *جاري تنفيذ الأمر...*${signature}`);
+                await chat.setMessagesAdminsOnly(true);
+                await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
+            } catch (error) {
+                console.error(error);
+                await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.*${signature}`);
             }
             return;
         }
@@ -226,22 +239,35 @@ client.on('message_create', async message => {
         // --- أمر فتح المجموعة ---
         if (content === '!فتح' || content === '!unlock') {
             if (!isGroupMessage) return;
-            if (await isAdmin(userId, currentGroupId)) {
-                if (await isBotAdmin(currentGroupId)) {
-                    try {
-                        await client.sendMessage(replyTo, `⏳ *جاري تنفيذ الأمر...*${signature}`);
-                        const chat = await message.getChat();
-                        await chat.setMessagesAdminsOnly(false);
-                        await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
-                    } catch (error) {
-                        console.error(error);
-                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.*${signature}`);
-                    }
-                } else {
-                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من فتح المجموعة.${signature}`);
+            const chat = await message.getChat();
+            
+            let isSenderAdmin = (userId === OWNER_ID || admins.has(userId));
+            let isBotGroupAdmin = false;
+            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
+
+            // فحص صلاحيات جميع الأعضاء المباشرة من المحادثة
+            for (let participant of chat.participants) {
+                const pId = participant.id._serialized.replace(/:\d+@/, '@');
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    if (pId === userId) isSenderAdmin = true;
+                    if (pId === botIdClean) isBotGroupAdmin = true;
                 }
-            } else {
-                await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
+            }
+
+            if (!isSenderAdmin) {
+                return await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
+            }
+            if (!isBotGroupAdmin) {
+                return await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من فتح المجموعة.${signature}`);
+            }
+
+            try {
+                await client.sendMessage(replyTo, `⏳ *جاري تنفيذ الأمر...*${signature}`);
+                await chat.setMessagesAdminsOnly(false);
+                await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
+            } catch (error) {
+                console.error(error);
+                await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.*${signature}`);
             }
             return;
         }
@@ -249,12 +275,17 @@ client.on('message_create', async message => {
         // --- أمر رابط المجموعة (متاح للجميع) ---
         if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
             if (!isGroupMessage) {
-                await client.sendMessage(replyTo, `⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
-                return;
+                return await client.sendMessage(replyTo, `⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
             }
-            if (await isBotAdmin(currentGroupId)) {
+            
+            const chat = await message.getChat();
+            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
+            
+            // التأكد أن البوت مشرف
+            const isBotGroupAdmin = chat.participants.some(p => p.id._serialized.replace(/:\d+@/, '@') === botIdClean && (p.isAdmin || p.isSuperAdmin));
+
+            if (isBotGroupAdmin) {
                 try {
-                    const chat = await message.getChat();
                     const inviteCode = await chat.getInviteCode();
                     const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
                     await client.sendMessage(replyTo, `🔗 *رابط الانضمام للمجموعة:*\n\n${inviteLink}\n\n💡 _شارك الرابط مع زملائك للانضمام!_${signature}`);
@@ -296,16 +327,33 @@ client.on('message_create', async message => {
 
         // --- أمر تثبيت الرسالة ---
         if (isGroupMessage && content === '!تثبيت' && message.hasQuotedMsg) {
-            if (await isAdmin(userId, currentGroupId)) {
-                if (await isBotAdmin(currentGroupId)) {
+            const chat = await message.getChat();
+            
+            let isSenderAdmin = (userId === OWNER_ID || admins.has(userId));
+            let isBotGroupAdmin = false;
+            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
+
+            for (let participant of chat.participants) {
+                const pId = participant.id._serialized.replace(/:\d+@/, '@');
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    if (pId === userId) isSenderAdmin = true;
+                    if (pId === botIdClean) isBotGroupAdmin = true;
+                }
+            }
+
+            if (isSenderAdmin && isBotGroupAdmin) {
+                try {
                     const quotedMsg = await message.getQuotedMessage();
                     await quotedMsg.pin();
                     await client.sendMessage(replyTo, `✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
+                } catch(e) {
+                    await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء التثبيت.*${signature}`);
                 }
+            } else if (!isBotGroupAdmin && isSenderAdmin) {
+                 await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن أكون مشرفاً (Admin) لأتمكن من تثبيت الرسائل.${signature}`);
             }
             return;
         }
-
         // --- أمر التحديث من GitHub ---
         if (!isGroupMessage && userId === OWNER_ID && content === '!تحديث') {
             await message.react('🔄');
