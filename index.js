@@ -146,7 +146,6 @@ function checkFonts() {
 }
 
 const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-const fs = require('fs');
 const path = require('path');
 
 async function generateLecturesTablePDF(lecturesData) {
