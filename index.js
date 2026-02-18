@@ -200,6 +200,12 @@ client.on('message_create', async message => {
         const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
         if (!content) return;
 
+       // ==========================================
+        // --- استخراج الأرقام الصافية لضمان التطابق 100% ---
+        const authorNumber = (message.author || message.from).split('@')[0].split(':')[0];
+        const botNumber = client.info.wid.user || client.info.wid._serialized.split('@')[0].split(':')[0];
+        // ==========================================
+
         // --- أمر قفل المجموعة ---
         if (content === '!قفل' || content === '!lock') {
             if (!isGroupMessage) return;
@@ -207,14 +213,12 @@ client.on('message_create', async message => {
             
             let isSenderAdmin = (userId === OWNER_ID || admins.has(userId));
             let isBotGroupAdmin = false;
-            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
 
-            // فحص صلاحيات جميع الأعضاء المباشرة من المحادثة
             for (let participant of chat.participants) {
-                const pId = participant.id._serialized.replace(/:\d+@/, '@');
                 if (participant.isAdmin || participant.isSuperAdmin) {
-                    if (pId === userId) isSenderAdmin = true;
-                    if (pId === botIdClean) isBotGroupAdmin = true;
+                    const pNumber = participant.id.user || participant.id._serialized.split('@')[0].split(':')[0];
+                    if (pNumber === authorNumber) isSenderAdmin = true;
+                    if (pNumber === botNumber) isBotGroupAdmin = true;
                 }
             }
 
@@ -243,14 +247,12 @@ client.on('message_create', async message => {
             
             let isSenderAdmin = (userId === OWNER_ID || admins.has(userId));
             let isBotGroupAdmin = false;
-            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
 
-            // فحص صلاحيات جميع الأعضاء المباشرة من المحادثة
             for (let participant of chat.participants) {
-                const pId = participant.id._serialized.replace(/:\d+@/, '@');
                 if (participant.isAdmin || participant.isSuperAdmin) {
-                    if (pId === userId) isSenderAdmin = true;
-                    if (pId === botIdClean) isBotGroupAdmin = true;
+                    const pNumber = participant.id.user || participant.id._serialized.split('@')[0].split(':')[0];
+                    if (pNumber === authorNumber) isSenderAdmin = true;
+                    if (pNumber === botNumber) isBotGroupAdmin = true;
                 }
             }
 
@@ -279,10 +281,14 @@ client.on('message_create', async message => {
             }
             
             const chat = await message.getChat();
-            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
+            let isBotGroupAdmin = false;
             
-            // التأكد أن البوت مشرف
-            const isBotGroupAdmin = chat.participants.some(p => p.id._serialized.replace(/:\d+@/, '@') === botIdClean && (p.isAdmin || p.isSuperAdmin));
+            for (let participant of chat.participants) {
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    const pNumber = participant.id.user || participant.id._serialized.split('@')[0].split(':')[0];
+                    if (pNumber === botNumber) isBotGroupAdmin = true;
+                }
+            }
 
             if (isBotGroupAdmin) {
                 try {
@@ -328,32 +334,34 @@ client.on('message_create', async message => {
         // --- أمر تثبيت الرسالة ---
         if (isGroupMessage && content === '!تثبيت' && message.hasQuotedMsg) {
             const chat = await message.getChat();
-            
             let isSenderAdmin = (userId === OWNER_ID || admins.has(userId));
             let isBotGroupAdmin = false;
-            const botIdClean = client.info.wid._serialized.replace(/:\d+@/, '@');
 
             for (let participant of chat.participants) {
-                const pId = participant.id._serialized.replace(/:\d+@/, '@');
                 if (participant.isAdmin || participant.isSuperAdmin) {
-                    if (pId === userId) isSenderAdmin = true;
-                    if (pId === botIdClean) isBotGroupAdmin = true;
+                    const pNumber = participant.id.user || participant.id._serialized.split('@')[0].split(':')[0];
+                    if (pNumber === authorNumber) isSenderAdmin = true;
+                    if (pNumber === botNumber) isBotGroupAdmin = true;
                 }
             }
 
-            if (isSenderAdmin && isBotGroupAdmin) {
-                try {
-                    const quotedMsg = await message.getQuotedMessage();
-                    await quotedMsg.pin();
-                    await client.sendMessage(replyTo, `✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
-                } catch(e) {
-                    await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء التثبيت.*${signature}`);
-                }
-            } else if (!isBotGroupAdmin && isSenderAdmin) {
-                 await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن أكون مشرفاً (Admin) لأتمكن من تثبيت الرسائل.${signature}`);
+            if (!isSenderAdmin) {
+                return await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
+            }
+            if (!isBotGroupAdmin) {
+                return await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن أكون مشرفاً (Admin) لأتمكن من تثبيت الرسائل.${signature}`);
+            }
+
+            try {
+                const quotedMsg = await message.getQuotedMessage();
+                await quotedMsg.pin();
+                await client.sendMessage(replyTo, `✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
+            } catch(e) {
+                await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء التثبيت.*${signature}`);
             }
             return;
         }
+
         // --- أمر التحديث من GitHub ---
         if (!isGroupMessage && userId === OWNER_ID && content === '!تحديث') {
             await message.react('🔄');
@@ -363,7 +371,6 @@ client.on('message_create', async message => {
             });
             return;
         }
-
         // --- أمر جدول المحاضرات ---
         if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
             try {
