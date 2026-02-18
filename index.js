@@ -199,7 +199,7 @@ client.on('message_create', async message => {
         let userIdRaw = message.fromMe ? client.info.wid._serialized : (isGroupMessage ? (message.author || message.from) : message.from);
         const replyTo = isGroupMessage ? currentGroupId : userIdRaw;
         const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
-        if (!content) return;
+       if (!content && !message.hasMedia) return;
         const contact = await message.getContact();
         const senderName = contact.pushname || contact.name || "طالب";
         const authorNumber = getCleanNumber(userIdRaw);
