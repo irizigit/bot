@@ -145,206 +145,245 @@ function checkFonts() {
     return true;
 }
 
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+const fs = require('fs');
+const path = require('path');
 
 async function generateLecturesTablePDF(lecturesData) {
-    return new Promise((resolve, reject) => {
-        try {
-            if (!checkFonts()) { 
-                reject(new Error('الخطوط المطلوبة غير موجودة.')); 
-                return; 
-            }
+    try {
+        // إنشاء مستند PDF جديد
+        const pdfDoc = await PDFDocument.create();
+        
+        // تحميل خط عربي (Amiri)
+        const fontPath = path.join(__dirname, 'fonts/Amiri-Regular.ttf');
+        const fontBytes = fs.readFileSync(fontPath);
+        const font = await pdfDoc.embedFont(fontBytes, { subset: true });
+        
+        // تحميل خط عريض
+        const boldFontPath = path.join(__dirname, 'fonts/Amiri-Bold.ttf');
+        const boldFontBytes = fs.readFileSync(boldFontPath);
+        const boldFont = await pdfDoc.embedFont(boldFontBytes, { subset: true });
+        
+        // إعداد الصفحة (A4 أفقي)
+        const pageWidth = 841.89;
+        const pageHeight = 595.28;
+        
+        // الفلترة
+        const activeProfs = Array.from(professors.values()).map(v => v.trim());
+        const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
+        const validData = lecturesData.filter(l => 
+            activeProfs.includes((l.professor_name || '').trim()) && 
+            activeSubjects.includes((l.subject_name || '').trim())
+        );
+        
+        const lectures = validData.filter(item => item.type === 'محاضرة');
+        const summaries = validData.filter(item => item.type === 'ملخص');
+        const exams = validData.filter(item => item.type === 'امتحان');
+        
+        // دالة عكس النص للـ RTL
+        const rtlText = (text) => {
+            if (!text) return '';
+            // عكس الكلمات مع الحفاظ على ترتيب الحروف داخل الكلمة
+            return text.split(' ').reverse().join(' ');
+        };
+        
+        // دالة رسم جدول
+        const drawTable = (page, data, headers, startY, columnWidths) => {
+            const margin = 30;
+            const rowHeight = 25;
+            const cellPadding = 5;
+            let y = startY;
             
-            const fonts = { 
-                Amiri: { 
-                    normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'), 
-                    bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf') 
-                } 
-            };
-            const printer = new PdfPrinter(fonts);
-
-            // الفلترة الذكية للأساتذة والمواد المحذوفة
-            const activeProfs = Array.from(professors.values()).map(v => v.trim());
-            const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
-            const validData = lecturesData.filter(l => 
-                activeProfs.includes((l.professor_name || '').trim()) && 
-                activeSubjects.includes((l.subject_name || '').trim())
-            );
-
-            // تقسيم البيانات
-            const lectures = validData.filter(item => item.type === 'محاضرة');
-            const summaries = validData.filter(item => item.type === 'ملخص');
-            const exams = validData.filter(item => item.type === 'امتحان');
-
-            // دالة مساعدة لتوليد الجداول
-            const createTableSection = (title, data, type) => {
-                const tableBody = [];
+            // رسم الترويسة
+            let x = pageWidth - margin;
+            page.drawRectangle({
+                x: margin,
+                y: y - rowHeight,
+                width: pageWidth - (margin * 2),
+                height: rowHeight,
+                color: rgb(0.173, 0.243, 0.314), // #2C3E50
+            });
+            
+            headers.forEach((header, i) => {
+                x -= columnWidths[i];
+                page.drawText(rtlText(header), {
+                    x: x + cellPadding,
+                    y: y - 18,
+                    size: 12,
+                    font: boldFont,
+                    color: rgb(1, 1, 1),
+                });
+            });
+            
+            y -= rowHeight;
+            
+            // رسم البيانات
+            data.forEach((row, rowIndex) => {
+                // خلفية متناوبة
+                if (rowIndex % 2 === 0) {
+                    page.drawRectangle({
+                        x: margin,
+                        y: y - rowHeight,
+                        width: pageWidth - (margin * 2),
+                        height: rowHeight,
+                        color: rgb(0.925, 0.941, 0.945), // #ECF0F1
+                    });
+                }
                 
-                // ✅ إعداد الترويسات بترتيب صحيح للـ RTL (من اليمين لليسار)
-                if (type === 'امتحان') {
-                    tableBody.push([
-                        { text: 'التاريخ', style: 'tableHeader' },
-                        { text: 'الأستاذ', style: 'tableHeader' },
-                        { text: 'السنة / الدورة', style: 'tableHeader' },
-                        { text: 'الفصل', style: 'tableHeader' },
-                        { text: 'المادة', style: 'tableHeader' },
-                        { text: 'الشعبة', style: 'tableHeader' },
-                        { text: 'التسلسل', style: 'tableHeader' }
-                    ]);
-                    data.forEach((item, index) => {
-                        const date = item.date_added 
-                            ? new Date(item.date_added).toLocaleDateString('ar-EG') 
-                            : 'غير محدد';
-                        tableBody.push([
-                            date,
-                            item.professor_name || '',
-                            item.lecture_number || '',
-                            item.class_name || '',
-                            item.subject_name || '',
-                            item.section_name || '',
-                            (index + 1).toString()
-                        ]);
+                x = pageWidth - margin;
+                row.forEach((cell, cellIndex) => {
+                    x -= columnWidths[cellIndex];
+                    page.drawText(rtlText(String(cell)), {
+                        x: x + cellPadding,
+                        y: y - 18,
+                        size: 10,
+                        font: font,
+                        color: rgb(0, 0, 0),
                     });
-                } else {
-                    tableBody.push([
-                        { text: 'التاريخ', style: 'tableHeader' },
-                        { text: 'الفوج', style: 'tableHeader' },
-                        { text: 'الأستاذ', style: 'tableHeader' },
-                        { text: 'الرقم', style: 'tableHeader' },
-                        { text: 'الفصل', style: 'tableHeader' },
-                        { text: 'المادة', style: 'tableHeader' },
-                        { text: 'الشعبة', style: 'tableHeader' },
-                        { text: 'التسلسل', style: 'tableHeader' }
-                    ]);
-                    data.forEach((item, index) => {
-                        const date = item.date_added 
-                            ? new Date(item.date_added).toLocaleDateString('ar-EG') 
-                            : 'غير محدد';
-                        tableBody.push([
-                            date,
-                            item.group_name || '',
-                            item.professor_name || '',
-                            item.lecture_number || '',
-                            item.class_name || '',
-                            item.subject_name || '',
-                            item.section_name || '',
-                            (index + 1).toString()
-                        ]);
-                    });
+                });
+                
+                y -= rowHeight;
+                
+                // صفحة جديدة إذا امتلأت
+                if (y < 50) {
+                    const newPage = pdfDoc.addPage([pageWidth, pageHeight]);
+                    return { page: newPage, y: startY };
                 }
-
-                const section = [
-                    { text: title, style: 'sectionTitle' }
-                ];
-
-                if (data.length > 0) {
-                    section.push({
-                        table: {
-                            headerRows: 1,
-                            widths: type === 'امتحان' 
-                                ? ['auto', '*', 'auto', 'auto', '*', 'auto', 'auto'] 
-                                : ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
-                            body: tableBody
-                        },
-                        layout: {
-                            fillColor: function (rowIndex) {
-                                return (rowIndex === 0) ? '#2C3E50' : (rowIndex % 2 === 0 ? '#ECF0F1' : null);
-                            },
-                            hLineWidth: function () { return 1; },
-                            vLineWidth: function () { return 1; },
-                            hLineColor: function () { return '#BDC3C7'; },
-                            vLineColor: function () { return '#BDC3C7'; }
-                        },
-                        margin: [0, 0, 0, 25]
-                    });
-                } else {
-                    section.push({ 
-                        text: 'لا توجد بيانات مضافة في هذا القسم حالياً.', 
-                        style: 'noData', 
-                        margin: [0, 0, 0, 25] 
-                    });
-                }
-
-                return section;
-            };
-
-            const docDefinition = {
-                // ✅ إزالة textDirection واستخدام الإعدادات الصحيحة
-                defaultStyle: { 
-                    font: 'Amiri', 
-                    alignment: 'right', 
-                    fontSize: 11
-                },
-                content: [
-                    { text: 'الأرشيف الأكاديمي الشامل', style: 'mainTitle' },
-                    { 
-                        text: `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`, 
-                        style: 'subTitle' 
-                    },
-                    { 
-                        canvas: [{ 
-                            type: 'line', 
-                            x1: 0, y1: 5, 
-                            x2: 770, y2: 5, 
-                            lineWidth: 2, 
-                            lineColor: '#2980B9' 
-                        }], 
-                        margin: [0, 0, 0, 20] 
-                    },
-                    
-                    ...createTableSection('جدول المحاضرات', lectures, 'محاضرة'),
-                    ...createTableSection('جدول الملخصات', summaries, 'ملخص'),
-                    ...createTableSection('جدول الامتحانات', exams, 'امتحان')
-                ],
-                styles: {
-                    mainTitle: { 
-                        fontSize: 24, 
-                        bold: true, 
-                        alignment: 'center', 
-                        color: '#2C3E50', 
-                        margin: [0, 0, 0, 5] 
-                    },
-                    subTitle: { 
-                        fontSize: 12, 
-                        alignment: 'center', 
-                        color: '#7F8C8D', 
-                        margin: [0, 0, 0, 10] 
-                    },
-                    sectionTitle: { 
-                        fontSize: 18, 
-                        bold: true, 
-                        color: '#2980B9', 
-                        margin: [0, 10, 0, 10], 
-                        decoration: 'underline' 
-                    },
-                    tableHeader: { 
-                        bold: true, 
-                        fontSize: 12, 
-                        color: 'white', 
-                        alignment: 'center', 
-                        margin: [0, 4, 0, 4] 
-                    },
-                    noData: { 
-                        fontSize: 12, 
-                        italic: true, 
-                        color: '#95A5A6', 
-                        alignment: 'center' 
-                    }
-                },
-                pageOrientation: 'landscape', 
-                pageSize: 'A4'
-            };
+            });
             
-            const pdfDoc = printer.createPdfKitDocument(docDefinition);
-            const chunks = [];
-            pdfDoc.on('data', chunk => chunks.push(chunk));
-            pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
-            pdfDoc.on('error', error => reject(error));
-            pdfDoc.end();
-        } catch (error) { 
-            reject(error); 
+            return { page, y };
+        };
+        
+        // الصفحة الأولى
+        let page = pdfDoc.addPage([pageWidth, pageHeight]);
+        let y = pageHeight - 50;
+        
+        // العنوان الرئيسي
+        page.drawText('الأرشيف الأكاديمي الشامل', {
+            x: pageWidth / 2 - 100,
+            y: y,
+            size: 24,
+            font: boldFont,
+            color: rgb(0.173, 0.243, 0.314),
+        });
+        
+        y -= 30;
+        
+        // التاريخ
+        const dateText = `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`;
+        page.drawText(rtlText(dateText), {
+            x: pageWidth / 2 - 60,
+            y: y,
+            size: 12,
+            font: font,
+            color: rgb(0.5, 0.5, 0.5),
+        });
+        
+        y -= 40;
+        
+        // أعمدة جدول المحاضرات والملخصات
+        const normalHeaders = ['التسلسل', 'الشعبة', 'المادة', 'الفصل', 'الرقم', 'الأستاذ', 'الفوج', 'التاريخ'];
+        const examHeaders = ['التسلسل', 'الشعبة', 'المادة', 'الفصل', 'السنة/الدورة', 'الأستاذ', 'التاريخ'];
+        const normalWidths = [50, 60, 120, 80, 50, 100, 60, 80];
+        const examWidths = [50, 60, 120, 80, 80, 100, 80];
+        
+        // جدول المحاضرات
+        if (lectures.length > 0) {
+            y -= 20;
+            page.drawText('جدول المحاضرات', {
+                x: pageWidth - 100,
+                y: y,
+                size: 16,
+                font: boldFont,
+                color: rgb(0.161, 0.502, 0.725),
+            });
+            y -= 10;
+            
+            const lecturesRows = lectures.map((item, i) => [
+                (i + 1).toString(),
+                item.section_name || '',
+                item.subject_name || '',
+                item.class_name || '',
+                item.lecture_number || '',
+                item.professor_name || '',
+                item.group_name || '',
+                item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد'
+            ]);
+            
+            const result = drawTable(page, lecturesRows, normalHeaders, y, normalWidths);
+            page = result.page;
+            y = result.y;
         }
-    });
+        
+        // جدول الملخصات
+        if (summaries.length > 0) {
+            y -= 30;
+            page.drawText('جدول الملخصات', {
+                x: pageWidth - 100,
+                y: y,
+                size: 16,
+                font: boldFont,
+                color: rgb(0.161, 0.502, 0.725),
+            });
+            y -= 10;
+            
+            const summariesRows = summaries.map((item, i) => [
+                (i + 1).toString(),
+                item.section_name || '',
+                item.subject_name || '',
+                item.class_name || '',
+                item.lecture_number || '',
+                item.professor_name || '',
+                item.group_name || '',
+                item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد'
+            ]);
+            
+            const result = drawTable(page, summariesRows, normalHeaders, y, normalWidths);
+            page = result.page;
+            y = result.y;
+        }
+        
+        // جدول الامتحانات
+        if (exams.length > 0) {
+            y -= 30;
+            page.drawText('جدول الامتحانات', {
+                x: pageWidth - 100,
+                y: y,
+                size: 16,
+                font: boldFont,
+                color: rgb(0.161, 0.502, 0.725),
+            });
+            y -= 10;
+            
+            const examsRows = exams.map((item, i) => [
+                (i + 1).toString(),
+                item.section_name || '',
+                item.subject_name || '',
+                item.class_name || '',
+                item.lecture_number || '',
+                item.professor_name || '',
+                item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد'
+            ]);
+            
+            const result = drawTable(page, examsRows, examHeaders, y, examWidths);
+            page = result.page;
+            y = result.y;
+        }
+        
+        // حفظ وإرجاع
+        const pdfBytes = await pdfDoc.save();
+        return Buffer.from(pdfBytes);
+        
+    } catch (error) {
+        throw error;
+    }
 }
+
+
+
+
+
+
 
 // أحداث العميل
 // ============================================
