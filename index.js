@@ -48,7 +48,7 @@ let groupId = null;
 let isBotReady = false;
 
 const PDF_ARCHIVE_GROUP = process.env.PDF_ARCHIVE_GROUP || '120363403563982270@g.us';
-const EXAMS_ARCHIVE_GROUP = process.env.EXAMS_ARCHIVE_GROUP || '120363425900214633@g.us'; 
+const EXAMS_ARCHIVE_GROUP = process.env.EXAMS_ARCHIVE_GROUP || 'ضع_الايدي_الجديد_هنا@g.us'; 
 const OWNER_ID = process.env.OWNER_ID || '212621957775@c.us'; 
 const SECOND_OWNER = '143731667767397@c.us'; 
 
@@ -411,23 +411,26 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
+            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
 
-            if (!message.hasQuotedMsg) { return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`); }
+            if (!message.hasQuotedMsg) { await message.react('⚠️'); return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`); }
 
             try {
+                await message.react('⏳');
                 const quotedMsg = await message.getQuotedMessage();
                 const targetId = quotedMsg.author || quotedMsg.from;
                 const cleanTargetId = getCleanNumber(targetId);
                 
                 if (cleanTargetId === botNumber || cleanTargetId === getCleanNumber(OWNER_ID) || cleanTargetId === getCleanNumber(SECOND_OWNER)) {
+                    await message.react('🛡️');
                     return await sendReply(`❌ *عذراً، لا يمكنني طرد هذا الرقم!* 🛡️${signature}`);
                 }
 
                 await chat.removeParticipants([targetId]);
+                await message.react('✅');
                 await sendReply(`✅ *تم طرد العضو بنجاح!* 🧹${signature}`);
-            } catch(e) { await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); }
+            } catch(e) { await message.react('❌'); await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); }
             return;
         }
 
@@ -447,17 +450,17 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { return await sendReply(`⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من التحكم بالمجموعة.${signature}`); }
+            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من التحكم بالمجموعة.${signature}`); }
 
             try {
-                await sendReply(`⏳ *جاري تنفيذ الأمر...*${signature}`);
                 const action = (content === '!قفل' || content === '!lock');
+                await message.react(action ? '🔒' : '🔓');
                 await chat.setMessagesAdminsOnly(action);
                 
                 if (action) { await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`); } 
                 else { await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`); }
-            } catch (error) { await sendReply(`❌ *حدث خطأ أثناء التنفيذ!* تحقق من الكونسول للمزيد من التفاصيل.${signature}`); }
+            } catch (error) { await message.react('❌'); await sendReply(`❌ *حدث خطأ أثناء التنفيذ!* تحقق من الكونسول للمزيد من التفاصيل.${signature}`); }
             return;
         }
 
@@ -472,11 +475,12 @@ client.on('message_create', async message => {
 
             if (isBotGroupAdmin) {
                 try {
+                    await message.react('🔗');
                     const inviteCode = await chat.getInviteCode();
                     const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
                     await sendReply(`🔗 *رابط الانضمام للمجموعة:*\n\n${inviteLink}\n\n💡 _شارك الرابط مع زملائك للانضمام!_${signature}`);
-                } catch (error) { await sendReply(`❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة.${signature}`); }
-            } else { await sendReply(`⚠️ *عذراً!* يجب على إدارة المجموعة أن تجعل البوت مشرفاً أولاً.${signature}`); }
+                } catch (error) { await message.react('❌'); await sendReply(`❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة.${signature}`); }
+            } else { await message.react('⚠️'); await sendReply(`⚠️ *عذراً!* يجب على إدارة المجموعة أن تجعل البوت مشرفاً أولاً.${signature}`); }
             return;
         }
 
@@ -494,14 +498,15 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); }
+            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); }
 
             try {
+                await message.react('📌');
                 const quotedMsg = await message.getQuotedMessage();
                 await quotedMsg.pin();
                 await sendReply(`✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
-            } catch(e) { await sendReply(`❌ *حدث خطأ أثناء التثبيت.*${signature}`); }
+            } catch(e) { await message.react('❌'); await sendReply(`❌ *حدث خطأ أثناء التثبيت.*${signature}`); }
             return;
         }
 
@@ -532,12 +537,14 @@ client.on('message_create', async message => {
         // --- أمر جدول المحاضرات ---
         if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
             try {
+                await message.react('📊');
                 const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
                 if (res.rows.length === 0) { await sendReply(`⚠️ *عذراً!* لا توجد بيانات مضافة حتى الآن.${signature}`); return; }
                 const pdfBuffer = await generateLecturesTablePDF(res.rows);
                 const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`);
                 await sendReply(media, { caption: `📊 *إليك جدول الأرشيف الشامل محدثاً* ✨${signature}` });
-            } catch (error) { await sendReply(`❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); }
+                await message.react('✅');
+            } catch (error) { await sendReply(`❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); await message.react('❌'); }
             return;
         }
 
@@ -564,6 +571,7 @@ client.on('message_create', async message => {
 
         // --- لوحة الإدارة ---
         if (!isGroupMessage && isOwner && content === '!إدارة') {
+            await message.react('🛠️');
             await sendReply(`🛠️ *لوحة تحكم المدير* 🛠️\n━━━━━━━━━━━━━━━━━━\n\n👥 *الأعضاء والمشرفين:*\n1. ➕ إضافة عضو\n2. ➖ حذف عضو\n3. ⬆️ ترقية عضو\n4. ⬇️ خفض مشرف\n5. 👨‍💻 إضافة مبرمج\n6. ❌ حذف مبرمج\n7. 🧹 تنظيف المجموعة\n\n⚙️ *إدارة المحتوى:*\n8. 📌 تثبيت رسالة\n9. 📊 جدول المحاضرات\n10. 📚 إدارة المحاضرات\n\n🗂️ *إدارة البيانات:*\n11. 🏷️ إدارة الشعب\n12. 🏫 إدارة الفصول\n13. 👥 إدارة الأفواج\n14. 👨‍🏫 إدارة الأساتذة\n15. 📖 إدارة المواد\n\n📢 *التواصل:*\n16. 🌐 بث لجميع المجموعات\n17. 🎯 بث لمجموعة مخصصة\n\n📖 *دليل الاستخدام (للطلاب):*\n18. 📚 رفع/تحديث كتاب الدليل (PDF)\n19. 🎥 رفع/تحديث فيديو الشرح (MP4)\n\n━━━━━━━━━━━━━━━━━━\n💡 _أرسل رقم الخيار لتنفيذه أو اكتب_ *إلغاء* _للخروج._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'admin_menu', timestamp: Date.now() });
             return;
@@ -573,6 +581,7 @@ client.on('message_create', async message => {
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
+            await message.react('📄');
             await sendReply(`📄 *إضافة ملف جديد* 📄\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار نوع الملف الذي تود إضافته:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'select_pdf_type' });
             return;
@@ -581,6 +590,7 @@ client.on('message_create', async message => {
         if (content === '!تحميل' || content === '!download') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!*${signature}`); return; }
+            await message.react('📥');
             await sendReply(`📥 *تحميل الملفات والامتحانات* 📥\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار النوع الذي تبحث عنه:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n3️⃣ 📸 امتحان\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'select_pdf_type_for_download' });
             return;
@@ -589,6 +599,7 @@ client.on('message_create', async message => {
         if (content === '!اضافة_امتحان' || content === '!add exam') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
+            await message.react('📸');
             let sectionsList = `📸 *إضافة امتحان جديد* 📸\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار الشعبة الخاصة بهذا الامتحان:\n\n`; 
             let index = 1;
             for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
@@ -604,6 +615,7 @@ client.on('message_create', async message => {
             const state = userState.get(userIdRaw);
 
             if (content.toLowerCase() === 'إلغاء') {
+                await message.react('❌');
                 await sendReply(`✅ *تم الإلغاء بنجاح!* ✨${signature}`);
                 clearState(userIdRaw);
                 return;
@@ -861,23 +873,31 @@ client.on('message_create', async message => {
                 }
                 
                 const selectedItem = state.availableItems[option - 1];
+                await message.react('⏳');
                 
                 try {
                     // استرجاع الملف من المجموعة الأرشيف
-                    const archiveGroup = state.downloadType === 'امتحان' ? EXAMS_ARCHIVE_GROUP : PDF_ARCHIVE_GROUP;
-                    const messages = await client.getMessagesById([selectedItem.message_id]);
+                    const archiveGroupId = state.downloadType === 'امتحان' ? EXAMS_ARCHIVE_GROUP : PDF_ARCHIVE_GROUP;
+                    const chat = await client.getChatById(archiveGroupId);
+                    const messages = await chat.fetchMessages({ limit: 100 });
                     
-                    if (messages && messages.length > 0 && messages[0].hasMedia) {
-                        const media = await messages[0].downloadMedia();
+                    // البحث عن الرسالة بالمعرف
+                    const targetMessage = messages.find(msg => msg.id._serialized === selectedItem.message_id);
+                    
+                    if (targetMessage && targetMessage.hasMedia) {
+                        const media = await targetMessage.downloadMedia();
                         await sendReply(media, { 
                             caption: `📥 *${state.downloadType}*\n📖 المادة: ${selectedItem.subject_name}\n${state.downloadType === 'امتحان' ? '📅 السنة/الدورة' : '📝 الرقم'}: ${selectedItem.lecture_number}\n👨‍🏫 الأستاذ: ${selectedItem.professor_name}${signature}` 
                         });
+                        await message.react('✅');
                     } else {
                         await sendReply(`❌ *عذراً، لم أتمكن من استرجاع الملف.* قد يكون تم حذفه من الأرشيف.${signature}`);
+                        await message.react('❌');
                     }
                 } catch (error) {
                     console.error('خطأ في التحميل:', error);
                     await sendReply(`❌ *حدث خطأ أثناء تحميل الملف!* يرجى المحاولة لاحقاً.${signature}`);
+                    await message.react('❌');
                 }
                 
                 clearState(userIdRaw);
