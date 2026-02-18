@@ -57,7 +57,7 @@ const groupsFile = './groups.json';
 const professorsFile = './professors.json';
 const subjectsFile = './subjects.json';
 
-// مجلد دليل الاستخدام (للفيديو والكتاب)
+// مجلد دليل الاستخدام
 const manualDir = path.join(__dirname, 'manual');
 if (!fs.existsSync(manualDir)) { fs.mkdirSync(manualDir, { recursive: true }); }
 
@@ -84,7 +84,7 @@ loadBlacklist(); loadSections(); loadClasses(); loadGroups(); loadProfessors(); 
 const signature = "\n\n━━━━━━━━━━━━━━━━━━\n👨‍💻 *Dev by:* IRIZI ✨";
 
 // ============================================
-// دوال PDF (للجدول فقط)
+// دوال PDF
 // ============================================
 function checkFonts() {
     const fontsDir = path.join(__dirname, 'fonts');
@@ -105,7 +105,6 @@ async function generateLecturesTablePDF(lecturesData) {
                 [ { text: 'التسلسل', bold: true }, { text: 'المادة', bold: true }, { text: 'رقم المحاضرة', bold: true }, { text: 'الأستاذ', bold: true }, { text: 'الفوج', bold: true }, { text: 'التاريخ', bold: true } ]
             ];
             
-            // فلترة المحاضرات للتأكد من أنها تعود لعناصر نشطة فقط
             const activeProfs = Array.from(professors.values());
             const activeSubjects = Array.from(subjects.values());
             const validLectures = lecturesData.filter(l => activeProfs.includes(l.professor_name) && activeSubjects.includes(l.subject_name));
@@ -134,17 +133,22 @@ async function generateLecturesTablePDF(lecturesData) {
 }
 
 // ============================================
-// دوال المساعدة
+// دوال المساعدة (تم إصلاح خطأ Multi-Device)
 // ============================================
 async function isAdmin(userId, groupId) {
     if (!isBotReady) return false;
     try {
-        if (userId === OWNER_ID) return true;
+        // تنظيف الآيدي من أي إضافات للأجهزة (:1, :2)
+        const cleanUserId = userId.replace(/:\d+@/, '@');
+        
+        if (cleanUserId === OWNER_ID) return true;
+        if (admins.has(cleanUserId)) return true;
+        
         const chat = await client.getChatById(groupId);
         if (!chat.isGroup) return false;
-        if (admins.has(userId)) return true;
+        
         const groupAdmins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
-        return groupAdmins.some(admin => admin.id._serialized === userId);
+        return groupAdmins.some(admin => admin.id._serialized.replace(/:\d+@/, '@') === cleanUserId);
     } catch (error) { return false; }
 }
 
@@ -152,9 +156,10 @@ async function isBotAdmin(groupId) {
     if (!isBotReady) return false;
     try {
         const chat = await client.getChatById(groupId);
-        const botId = client.info.wid._serialized;
+        const cleanBotId = client.info.wid._serialized.replace(/:\d+@/, '@');
+        
         const groupAdmins = chat.participants.filter(p => p.isAdmin || p.isSuperAdmin);
-        return groupAdmins.some(admin => admin.id._serialized === botId);
+        return groupAdmins.some(admin => admin.id._serialized.replace(/:\d+@/, '@') === cleanBotId);
     } catch (error) { return false; }
 }
 
@@ -172,65 +177,29 @@ client.on('ready', async () => {
 
 client.on('message_create', async message => {
     try {
-        if (!isBotReady || !message || !message.from) return;
-        const userId = message.from.includes('@g.us') ? message.author : message.from;
-        const contact = await message.getContact();
-        const senderName = contact.pushname || contact.name || "User";
-        const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
-        const isGroupMessage = message.from.includes('@g.us');
-        const currentGroupId = isGroupMessage ? message.from : groupId;
-        const replyTo = isGroupMessage ? currentGroupId : userId;
+        if (!isBotReady || !message) return;
 
-        // --- أمر دليل الاستخدام ---
-        if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
-            if (!isGroupMessage) return; 
-            await message.react('📖');
-            
-            const pdfPath = path.join(manualDir, 'manual.pdf');
-            const videoPath = path.join(manualDir, 'tutorial.mp4');
-            
-            let filesSent = false;
-
-            if (fs.existsSync(videoPath)) {
-                const videoMedia = MessageMedia.fromFilePath(videoPath);
-                await client.sendMessage(replyTo, videoMedia, { caption: `🎥 *فيديو توضيحي لطريقة الاستخدام*${signature}` });
-                filesSent = true;
-            }
-
-            if (fs.existsSync(pdfPath)) {
-                const pdfMedia = MessageMedia.fromFilePath(pdfPath);
-                await client.sendMessage(replyTo, pdfMedia, { caption: `📖 *كتاب دليل الاستخدام*\nاقرأ هذا الدليل لمعرفة جميع ميزات البوت وكيفية استغلالها بالشكل الصحيح. ✨${signature}` });
-                filesSent = true;
-            }
-
-            if (!filesSent) {
-                await client.sendMessage(replyTo, `⚠️ *دليل الاستخدام قيد الإعداد حالياً!*\nيرجى الانتظار حتى تقوم الإدارة برفعه قريباً.${signature}`);
-            }
-            return;
-        }
+        // 1. تحديد مكان الرسالة
+        const isGroupMessage = message.from.includes('@g.us') || message.to.includes('@g.us');
+        const currentGroupId = isGroupMessage ? (message.from.includes('@g.us') ? message.from : message.to) : null;
         
-// --- أمر رابط المجموعة ---
-        if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
-            if (!isGroupMessage) {
-                await client.sendMessage(replyTo, `⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
-                return;
-            }
-            
-            // التحقق مما إذا كان البوت مشرفاً (Admin) ليتمكن من سحب الرابط
-            if (await isBotAdmin(currentGroupId)) {
-                try {
-                    const chat = await message.getChat();
-                    const inviteCode = await chat.getInviteCode();
-                    const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
-                    await client.sendMessage(replyTo, `🔗 *رابط الانضمام للمجموعة:*\n\n${inviteLink}${signature}`);
-                } catch (error) {
-                    await client.sendMessage(replyTo, `❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة في إعدادات المجموعة.${signature}`);
-                }
-            } else {
-                await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) في المجموعة أولاً لأتمكن من استخراج الرابط.${signature}`);
-            }
-            return;
+        // 2. تحديد هوية المرسل بدقة وتلافي أخطاء Multi-Device
+        let userId = '';
+        if (message.fromMe) {
+            userId = client.info.wid._serialized; // الرسالة منك
+        } else if (isGroupMessage) {
+            userId = message.author || message.from; // الرسالة من عضو في المجموعة
+        } else {
+            userId = message.from; // الرسالة من الخاص
         }
+
+        // 3. تنظيف الآيدي
+        if (userId) { userId = userId.replace(/:\d+@/, '@'); }
+
+        const replyTo = isGroupMessage ? currentGroupId : userId;
+        const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
+        if (!content) return;
+
         // --- أمر قفل المجموعة ---
         if (content === '!قفل' || content === '!lock') {
             if (!isGroupMessage) return;
@@ -243,7 +212,7 @@ client.on('message_create', async message => {
                         await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
                     } catch (error) {
                         console.error(error);
-                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.* (قد تحتاج لتحديث المكتبة من السيرفر)${signature}`);
+                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.*${signature}`);
                     }
                 } else {
                     await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من إغلاق المجموعة.${signature}`);
@@ -266,7 +235,7 @@ client.on('message_create', async message => {
                         await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
                     } catch (error) {
                         console.error(error);
-                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.* (قد تحتاج لتحديث المكتبة من السيرفر)${signature}`);
+                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.*${signature}`);
                     }
                 } else {
                     await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من فتح المجموعة.${signature}`);
@@ -276,16 +245,52 @@ client.on('message_create', async message => {
             }
             return;
         }
-         if (!isGroupMessage && userId === OWNER_ID && content === '!تحديث') {
-            await message.react('🔄');
-            await client.sendMessage(userId, `🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.`);
-            exec('git pull origin main && pm2 restart all', async (error, stdout, stderr) => {
-                if (error) {
-                    console.error(`[❌] فشل التحديث: ${error.message}`);
-                    await client.sendMessage(userId, `⚠️ حدث خطأ أثناء التحديث:\n${error.message}\n${signature}`);
-                    return;
+
+        // --- أمر رابط المجموعة (متاح للجميع) ---
+        if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
+            if (!isGroupMessage) {
+                await client.sendMessage(replyTo, `⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
+                return;
+            }
+            if (await isBotAdmin(currentGroupId)) {
+                try {
+                    const chat = await message.getChat();
+                    const inviteCode = await chat.getInviteCode();
+                    const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
+                    await client.sendMessage(replyTo, `🔗 *رابط الانضمام للمجموعة:*\n\n${inviteLink}\n\n💡 _شارك الرابط مع زملائك للانضمام!_${signature}`);
+                } catch (error) {
+                    await client.sendMessage(replyTo, `❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة في إعدادات المجموعة.${signature}`);
                 }
-            });
+            } else {
+                await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب على إدارة المجموعة أن تجعل البوت مشرفاً (Admin) أولاً ليتمكن من استخراج الرابط.${signature}`);
+            }
+            return;
+        }
+
+        // --- أمر دليل الاستخدام ---
+        if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
+            if (!isGroupMessage) return; 
+            await message.react('📖');
+            
+            const pdfPath = path.join(manualDir, 'manual.pdf');
+            const videoPath = path.join(manualDir, 'tutorial.mp4');
+            let filesSent = false;
+
+            if (fs.existsSync(videoPath)) {
+                const videoMedia = MessageMedia.fromFilePath(videoPath);
+                await client.sendMessage(replyTo, videoMedia, { caption: `🎥 *فيديو توضيحي لطريقة الاستخدام*${signature}` });
+                filesSent = true;
+            }
+
+            if (fs.existsSync(pdfPath)) {
+                const pdfMedia = MessageMedia.fromFilePath(pdfPath);
+                await client.sendMessage(replyTo, pdfMedia, { caption: `📖 *كتاب دليل الاستخدام*\nاقرأ هذا الدليل لمعرفة جميع ميزات البوت وكيفية استغلالها بالشكل الصحيح. ✨${signature}` });
+                filesSent = true;
+            }
+
+            if (!filesSent) {
+                await client.sendMessage(replyTo, `⚠️ *دليل الاستخدام قيد الإعداد حالياً!*\nيرجى الانتظار حتى تقوم الإدارة برفعه قريباً.${signature}`);
+            }
             return;
         }
 
@@ -295,7 +300,7 @@ client.on('message_create', async message => {
                 if (await isBotAdmin(currentGroupId)) {
                     const quotedMsg = await message.getQuotedMessage();
                     await quotedMsg.pin();
-                    await client.sendMessage(OWNER_ID, `✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
+                    await client.sendMessage(replyTo, `✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
                 }
             }
             return;
@@ -304,9 +309,9 @@ client.on('message_create', async message => {
         // --- أمر التحديث من GitHub ---
         if (!isGroupMessage && userId === OWNER_ID && content === '!تحديث') {
             await message.react('🔄');
-            await client.sendMessage(userId, `🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.${signature}`);
+            await client.sendMessage(replyTo, `🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.${signature}`);
             exec('git pull origin main && pm2 restart all', async (error) => {
-                if (error) await client.sendMessage(userId, `⚠️ *حدث خطأ أثناء التحديث:*\n${error.message}${signature}`);
+                if (error) await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء التحديث:*\n${error.message}${signature}`);
             });
             return;
         }
@@ -325,7 +330,7 @@ client.on('message_create', async message => {
 
         // --- لوحة الإدارة ---
         if (!isGroupMessage && userId === OWNER_ID && content === '!إدارة') {
-            await client.sendMessage(userId, `🛠️ *لوحة تحكم المدير* 🛠️\n━━━━━━━━━━━━━━━━━━\n\n👥 *الأعضاء والمشرفين:*\n1. ➕ إضافة عضو\n2. ➖ حذف عضو\n3. ⬆️ ترقية عضو\n4. ⬇️ خفض مشرف\n5. 👨‍💻 إضافة مبرمج\n6. ❌ حذف مبرمج\n7. 🧹 تنظيف المجموعة\n\n⚙️ *إدارة المحتوى:*\n8. 📌 تثبيت رسالة\n9. 📊 جدول المحاضرات\n10. 📚 إدارة المحاضرات\n\n🗂️ *إدارة البيانات:*\n11. 🏷️ إدارة الشعب\n12. 🏫 إدارة الفصول\n13. 👥 إدارة الأفواج\n14. 👨‍🏫 إدارة الأساتذة\n15. 📖 إدارة المواد\n\n📢 *التواصل:*\n16. 🌐 بث لجميع المجموعات\n17. 🎯 بث لمجموعة مخصصة\n\n📖 *دليل الاستخدام (للطلاب):*\n18. 📚 رفع/تحديث كتاب الدليل (PDF)\n19. 🎥 رفع/تحديث فيديو الشرح (MP4)\n\n━━━━━━━━━━━━━━━━━━\n💡 _أرسل رقم الخيار لتنفيذه أو اكتب_ *إلغاء* _للخروج._${signature}`);
+            await client.sendMessage(replyTo, `🛠️ *لوحة تحكم المدير* 🛠️\n━━━━━━━━━━━━━━━━━━\n\n👥 *الأعضاء والمشرفين:*\n1. ➕ إضافة عضو\n2. ➖ حذف عضو\n3. ⬆️ ترقية عضو\n4. ⬇️ خفض مشرف\n5. 👨‍💻 إضافة مبرمج\n6. ❌ حذف مبرمج\n7. 🧹 تنظيف المجموعة\n\n⚙️ *إدارة المحتوى:*\n8. 📌 تثبيت رسالة\n9. 📊 جدول المحاضرات\n10. 📚 إدارة المحاضرات\n\n🗂️ *إدارة البيانات:*\n11. 🏷️ إدارة الشعب\n12. 🏫 إدارة الفصول\n13. 👥 إدارة الأفواج\n14. 👨‍🏫 إدارة الأساتذة\n15. 📖 إدارة المواد\n\n📢 *التواصل:*\n16. 🌐 بث لجميع المجموعات\n17. 🎯 بث لمجموعة مخصصة\n\n📖 *دليل الاستخدام (للطلاب):*\n18. 📚 رفع/تحديث كتاب الدليل (PDF)\n19. 🎥 رفع/تحديث فيديو الشرح (MP4)\n\n━━━━━━━━━━━━━━━━━━\n💡 _أرسل رقم الخيار لتنفيذه أو اكتب_ *إلغاء* _للخروج._${signature}`);
             userState.set(userId, { step: 'admin_menu', timestamp: Date.now() });
             return;
         }
@@ -482,7 +487,6 @@ client.on('message_create', async message => {
                     const query = `SELECT DISTINCT class_name FROM lectures WHERE type = $1 AND section_name = $2`;
                     const res = await db.query(query, [state.pdfType, state.sectionName]);
                     
-                    // [الفلتر الذكي] إخفاء الفصول التي تم حذفها من لوحة الإدارة
                     const activeClasses = Array.from(classes.values());
                     state.availableClasses = res.rows.map(row => row.class_name).filter(c => activeClasses.includes(c));
                     
@@ -507,7 +511,6 @@ client.on('message_create', async message => {
                     const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY id DESC`;
                     const res = await db.query(query, [state.pdfType, state.sectionName, state.className]);
                     
-                    // [الفلتر الذكي] إخفاء المحاضرات للأساتذة أو المواد المحذوفة
                     const activeProfs = Array.from(professors.values());
                     const activeSubjects = Array.from(subjects.values());
                     const filteredLectures = res.rows.filter(l => activeProfs.includes(l.professor_name) && activeSubjects.includes(l.subject_name));
@@ -560,7 +563,6 @@ client.on('message_create', async message => {
                 if (option === 10) { await client.sendMessage(userId, `📚 *إدارة المحاضرات* 📚\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ تعديل محاضرة\n3️⃣ حذف محاضرة\n\n💡 _أرسل الرقم المطلوب:_${signature}`); userState.set(userId, { step: 'lectures_management_menu' }); return; }
                 if (option === 11) { await client.sendMessage(userId, `🏷️ *إدارة الشعب* 🏷️\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ إضافة شعبة جديدة\n3️⃣ تعديل شعبة\n4️⃣ حذف شعبة\n\n💡 _أرسل الرقم المطلوب:_${signature}`); userState.set(userId, { step: 'sections_management_menu' }); return; }
 
-                // القوائم التلقائية (12-15)
                 if (option >= 12 && option <= 15) {
                     const maps = { 12: 'classes', 13: 'groups', 14: 'professors', 15: 'subjects' };
                     const titles = { 12: 'الفصول', 13: 'الأفواج', 14: 'الأساتذة', 15: 'المواد' };
@@ -573,7 +575,6 @@ client.on('message_create', async message => {
                 if (option === 18) { await client.sendMessage(userId, `📚 *رفع كتاب الدليل*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *PDF* الخاص بكتاب دليل الاستخدام.\n(سيتم استبدال الملف القديم إذا كان موجوداً)${signature}`); userState.set(userId, { step: 'waiting_for_manual_pdf' }); return; }
                 if (option === 19) { await client.sendMessage(userId, `🎥 *رفع فيديو الشرح*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *Video (MP4)* الخاص بشرح الاستخدام.\n⚠️ ملاحظة: يُفضل أن لا يتجاوز حجم الفيديو 16 ميغابايت لتجنب مشاكل الإرسال في الواتساب.${signature}`); userState.set(userId, { step: 'waiting_for_manual_video' }); return; }
 
-                // تنفيذ الخيارات التي تتطلب اختيار مجموعة (1, 2, 3, 4, 7, 17)
                 if ([1, 2, 3, 4, 7, 17].includes(option)) {
                     let groupList = `📋 *اختر المجموعة المطلوبة:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1;
                     const groupsArray = Array.from(groupsMetadata.entries());
@@ -700,7 +701,6 @@ client.on('message_create', async message => {
                 if (content.toLowerCase() === 'نعم') { 
                     const secName = sections.get(state.delId);
                     try { 
-                        // الحذف الجذري من قاعدة البيانات
                         await db.query(`DELETE FROM lectures WHERE section_name = $1`, [secName]); 
                         await db.query(`DELETE FROM sections WHERE name = $1`, [secName]); 
                     } catch(e) { console.error('DB error', e); } 
@@ -710,7 +710,7 @@ client.on('message_create', async message => {
                 userState.delete(userId); return; 
             }
 
-            // الإدارة التلقائية (12-15) - [الربط الجذري مع قاعدة البيانات والفلتر]
+            // الإدارة التلقائية (12-15)
             const autoDataMenus = {
                 'classes': { map: classes, save: saveClasses, title: 'الفصول', dbCol: 'class_name', table: 'classes' },
                 'groups': { map: groupsData, save: saveGroups, title: 'الأفواج', dbCol: 'group_name', table: 'course_groups' },
@@ -731,9 +731,7 @@ client.on('message_create', async message => {
                     if (content.toLowerCase() === 'نعم') { 
                         data.map.delete(state.delId); data.save(); 
                         try { 
-                            // 1. مسح المحاضرات المرتبطة بهذا العنصر من الأرشيف (lectures)
                             await db.query(`DELETE FROM lectures WHERE ${data.dbCol} = $1`, [state.delName]); 
-                            // 2. مسحه من الجداول الأساسية لمنع أي تعارض (classes, subjects...)
                             await db.query(`DELETE FROM ${data.table} WHERE name = $1`, [state.delName]); 
                             await client.sendMessage(userId, `✅ *تم الحذف بنجاح!* ✨\nتم مسح العنصر وتنظيف قاعدة البيانات من كل ما يتعلق به.`); 
                         } catch(e) { 
