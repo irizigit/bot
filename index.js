@@ -683,7 +683,7 @@ client.on('message_create', async message => {
                 if (state.step === 'select_class_for_exam_add') {
                     state.step = 'waiting_exam_form';
                     updateState(userIdRaw, replyTo, state);
-                    await sendReply(`✅ *تم اختيار ${state.className}!*\nيرجى نسخ الاستمارة التالية وملئها:\n\nسنة الامتحان (أو الدورة): \nالمادة: \nالأستاذ: \n\n⚠️ *ملاحظة:* املأ البيانات بعد النقطتين (:) ثم أرسلها.${signature}`);
+                    await sendReply(`✅ *تم اختيار ${state.className}!*\nيرجى نسخ الاستمارة التالية وملئها:\n\nسنة الامتحان (أو الدورة): \nالمادة: \nالأستاذ: \n\n⚠️ *ملاحظة:* املأ البيانات بعد النقطتين (:) ثم أرسلها.\n\n📸 *تنبيه:* بعد ملء الاستمارة سيُطلب منك إرسال صورة الامتحان.${signature}`);
                 } else {
                     state.step = 'waiting_form';
                     updateState(userIdRaw, replyTo, state);
@@ -715,9 +715,9 @@ client.on('message_create', async message => {
                     if (line.includes('الأستاذ') || line.includes('الاستاد')) info.professor = line.split(':')[1]?.trim();
                 });
                 if (!info.number || !info.subject || !info.professor) { await sendReply(`⚠️ *الاستمارة ناقصة!* يرجى ملء كافة البيانات.${signature}`); return; }
-                state.formData = info; state.step = 'waiting_exam_pdf'; 
+                state.formData = info; state.step = 'waiting_exam_image'; 
                 updateState(userIdRaw, replyTo, state);
-                await sendReply(`✅ *تم استلام البيانات.* يرجى الآن إرسال ملف الـ *PDF* الخاص بالامتحان.${signature}`);
+                await sendReply(`✅ *تم استلام البيانات.* يرجى الآن إرسال *صورة* الامتحان.\n\n📸 *ملاحظة:* يمكن إرسال صورة واحدة أو عدة صور للامتحان.${signature}`);
                 return;
             }
 
@@ -747,10 +747,21 @@ client.on('message_create', async message => {
                 return;
             }
 
-            if (state.step === 'waiting_exam_pdf') {
-                if (message.hasMedia && message.type === 'document') {
+            if (state.step === 'waiting_exam_image') {
+                // دعم الصور للامتحانات
+                if (message.hasMedia && (message.type === 'image' || message.type === 'document')) {
                     const media = await message.downloadMedia();
-                    if (media.mimetype === 'application/pdf') {
+                    
+                    // التحقق من أن الملف صورة
+                    const isImage = media.mimetype && media.mimetype.startsWith('image/');
+                    const isImageDocument = message.type === 'document' && (
+                        media.mimetype === 'image/jpeg' || 
+                        media.mimetype === 'image/png' || 
+                        media.mimetype === 'image/jpg' ||
+                        media.mimetype === 'image/webp'
+                    );
+                    
+                    if (isImage || isImageDocument) {
                         await message.react('⏳');
                         const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
@@ -758,17 +769,22 @@ client.on('message_create', async message => {
                             const archiveMsg = await client.sendMessage(EXAMS_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
                             const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)`;
-                            const values = ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.number, messageId, senderName, media.filename || 'exam.pdf'];
+                            const fileExt = media.mimetype.split('/')[1] || 'jpg';
+                            const values = ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.number, messageId, senderName, `exam.${fileExt}`];
                             await db.query(query, values);
                             
-                            await sendReply(`✅ *تم حفظ الامتحان بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}${signature}`);
+                            await sendReply(`✅ *تم حفظ صورة الامتحان بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}${signature}`);
                             await message.react('✅');
                         } catch (error) {
                             console.error('خطأ في الحفظ:', error);
                             await sendReply(`❌ *حدث خطأ أثناء الحفظ!* يرجى المحاولة مرة أخرى.${signature}`);
                         }
-                    } else { await sendReply(`⚠️ *يرجى إرسال ملف بصيغة PDF فقط!*${signature}`); }
-                } else { await sendReply(`⚠️ *لم تقم بإرسال أي ملف PDF.* يرجى إرسال الملف المطلوب.${signature}`); }
+                    } else { 
+                        await sendReply(`⚠️ *يرجى إرسال صورة فقط!*\n📸 الصيغ المدعومة: JPG, PNG, WEBP${signature}`); 
+                    }
+                } else { 
+                    await sendReply(`⚠️ *لم تقم بإرسال أي صورة.* يرجى إرسال صورة الامتحان.\n\n📸 *تنبيه:* الامتحانات يجب أن تكون صوراً وليست ملفات PDF.${signature}`); 
+                }
                 clearState(userIdRaw);
                 return;
             }
