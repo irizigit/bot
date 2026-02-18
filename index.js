@@ -69,15 +69,10 @@ const signature = "\n\n━━━━━━━━━━━━━━━━━━\n�
 // دوال إدارة حالة المستخدم مع المؤقت (Timeout)
 // ============================================
 function updateState(userId, replyTo, state) {
-    // إيقاف المؤقت القديم إذا كان موجوداً
     if (userTimeouts.has(userId)) {
         clearTimeout(userTimeouts.get(userId));
     }
-    
-    // تحديث الحالة
     userState.set(userId, state);
-    
-    // بدء مؤقت جديد لـ 4 دقائق (240,000 ملي ثانية)
     const timeout = setTimeout(async () => {
         if (userState.has(userId)) {
             userState.delete(userId);
@@ -87,7 +82,6 @@ function updateState(userId, replyTo, state) {
             } catch (error) { console.error('فشل إرسال رسالة المهلة', error); }
         }
     }, 4 * 60 * 1000);
-    
     userTimeouts.set(userId, timeout);
 }
 
@@ -147,7 +141,7 @@ async function generateLecturesTablePDF(lecturesData) {
             const fonts = { Amiri: { normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'), bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf') } };
             const printer = new PdfPrinter(fonts);
             const body = [
-                [ { text: 'التسلسل', bold: true }, { text: 'المادة', bold: true }, { text: 'رقم المحاضرة', bold: true }, { text: 'الأستاذ', bold: true }, { text: 'الفوج', bold: true }, { text: 'التاريخ', bold: true } ]
+                [ { text: 'التسلسل', bold: true }, { text: 'المادة', bold: true }, { text: 'رقم المحاضرة/الامتحان', bold: true }, { text: 'الأستاذ', bold: true }, { text: 'الفوج', bold: true }, { text: 'التاريخ', bold: true } ]
             ];
             
             const activeProfs = Array.from(professors.values()).map(v => v.trim());
@@ -161,7 +155,7 @@ async function generateLecturesTablePDF(lecturesData) {
             const docDefinition = {
                 defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 12, textDirection: 'rtl' },
                 content: [
-                    { text: 'جدول المحاضرات', style: 'header' },
+                    { text: 'جدول المحاضرات والامتحانات', style: 'header' },
                     { table: { headerRows: 1, widths: ['auto', '*', 'auto', '*', 'auto', 'auto'], body }, layout: 'lightHorizontalLines' }
                 ],
                 styles: { header: { fontSize: 18, bold: true, alignment: 'center', margin: [0, 0, 0, 10] } },
@@ -209,8 +203,6 @@ client.on('message_create', async message => {
 
         const authorNumber = getCleanNumber(userIdRaw);
         const botNumber = getCleanNumber(client.info.wid);
-        
-        // التحقق من هوية المدير المطلقة
         const isOwner = (authorNumber === getCleanNumber(OWNER_ID) || authorNumber === getCleanNumber(SECOND_OWNER));
 
         // ========================================================
@@ -339,7 +331,7 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أوامر PDF (إضافة وتحميل) ---
+        // --- أوامر الملفات (إضافة وتحميل) ---
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await client.sendMessage(replyTo, `⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
@@ -348,7 +340,7 @@ client.on('message_create', async message => {
             return;
         }
 
-       if (content === '!تحميل' || content === '!download') {
+        if (content === '!تحميل' || content === '!download') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await client.sendMessage(replyTo, `⚠️ *لم يتم إعداد بيانات الشعب بعد!*${signature}`); return; }
             await client.sendMessage(replyTo, `📥 *تحميل الملفات والامتحانات* 📥\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار النوع الذي تبحث عنه:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n3️⃣ 📸 امتحان\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
@@ -356,19 +348,17 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر إضافة امتحان (صورة) ---
         if (content === '!اضافة_امتحان' || content === '!add exam') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await client.sendMessage(replyTo, `⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
-            await client.sendMessage(replyTo, `📸 *إضافة امتحان جديد* 📸\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار الشعبة الخاصة بهذا الامتحان:\n`);
-            
-            let sectionsList = ``; let index = 1;
+            let sectionsList = `📸 *إضافة امتحان جديد* 📸\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار الشعبة الخاصة بهذا الامتحان:\n\n`; 
+            let index = 1;
             for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
             await client.sendMessage(replyTo, sectionsList + `\n💡 _أرسل رقم الشعبة أو اكتب_ *إلغاء*${signature}`);
-            
             updateState(userIdRaw, replyTo, { step: 'select_section_for_exam', pdfType: 'امتحان' });
             return;
         }
+
         // ================================
         // معالج الحالات للعمليات (State Handler)
         // ================================
@@ -392,8 +382,7 @@ client.on('message_create', async message => {
                         await message.react('✅');
                     } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال ملف بصيغة PDF فقط!*${signature}`); }
                 } else { await client.sendMessage(replyTo, `⚠️ *لم تقم بإرسال أي ملف PDF.* يرجى المحاولة مرة أخرى.${signature}`); }
-                clearState(userIdRaw);
-                return;
+                clearState(userIdRaw); return;
             }
 
             if (state.step === 'waiting_for_manual_video') {
@@ -404,11 +393,10 @@ client.on('message_create', async message => {
                     await client.sendMessage(replyTo, `✅ *تم حفظ فيديو الشرح بنجاح!* ✨\nسيتم إرساله للطلاب مع أمر !دليل.${signature}`);
                     await message.react('✅');
                 } else { await client.sendMessage(replyTo, `⚠️ *لم تقم بإرسال أي فيديو.* يرجى المحاولة مرة أخرى.${signature}`); }
-                clearState(userIdRaw);
-                return;
+                clearState(userIdRaw); return;
             }
 
-            // --- عمليات إضافة PDF (الطلاب) ---
+            // --- عمليات إضافة PDF (محاضرة/ملخص) ---
             if (state.step === 'select_pdf_type') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2) { await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!* يرجى اختيار 1 للمحاضرة أو 2 للملخص.${signature}`); return; }
@@ -481,7 +469,8 @@ client.on('message_create', async message => {
                 } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال ملف PDF!*${signature}`); }
                 return;
             }
-// ==========================================
+
+            // ==========================================
             // --- عمليات إضافة امتحان (استقبال الصورة) ---
             // ==========================================
             if (state.step === 'select_section_for_exam') {
@@ -504,7 +493,7 @@ client.on('message_create', async message => {
                 });
                 if (!info.number || !info.className || !info.subject || !info.professor) { await client.sendMessage(replyTo, `⚠️ *الاستمارة ناقصة!* يرجى ملء كافة البيانات.${signature}`); return; }
                 state.formData = info; 
-                state.formData.group = 'عام'; // الامتحانات غالباً موحدة لجميع الأفواج
+                state.formData.group = 'عام'; 
                 state.step = 'waiting_exam_image'; 
                 updateState(userIdRaw, replyTo, state);
                 await client.sendMessage(replyTo, `✅ *تم استلام البيانات.* يرجى الآن إرسال *صورة الامتحان* 📸.${signature}`);
@@ -512,24 +501,38 @@ client.on('message_create', async message => {
             }
 
             if (state.step === 'waiting_exam_image') {
+                console.log(`\n================= [ DEBUG: استقبال صورة الامتحان ] =================`);
+                console.log(`- رقم المستخدم: ${userIdRaw}`);
+                console.log(`- هل الرسالة تحتوي على وسائط؟: ${message.hasMedia}`);
+                console.log(`- نوع الرسالة: ${message.type}`);
+
                 if (message.hasMedia) {
                     await message.react('⏳');
                     try {
+                        console.log(`- جاري تحميل الوسائط من سيرفرات واتساب...`);
                         const media = await message.downloadMedia();
                         
-                        // التحقق من أن الملف المرفق هو صورة (سواء أُرسل كصورة أو كمستند)
+                        if (media) {
+                            console.log(`- تم التحميل بنجاح! النوع: ${media.mimetype}`);
+                        } else {
+                            console.log(`- ❌ فشل التحميل.`);
+                        }
+
                         if (media && media.mimetype && media.mimetype.startsWith('image/')) {
+                            console.log(`- ملف صحيح (صورة). جاري الإرسال للأرشيف...`);
                             
                             const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n🗓️ السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.formData.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
                             const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
+                            console.log(`- ✅ تم الإرسال. ID: ${messageId}`);
                             
-                            // تحديد اسم افتراضي للصورة إذا لم يكن لها اسم
                             const fileName = media.filename || `exam_${Date.now()}.${media.mimetype.split('/')[1]}`;
 
+                            console.log(`- جاري الحفظ في DB...`);
                             const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
                             await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.formData.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), fileName]);
+                            console.log(`- ✅ تم الحفظ بنجاح!`);
 
                             let newItemsAdded = [];
                             const className = state.formData.className.trim();
@@ -544,22 +547,26 @@ client.on('message_create', async message => {
                             await client.sendMessage(replyTo, successMsg + signature);
                             clearState(userIdRaw); 
                             await message.react('✅');
+                            console.log(`===================================================================\n`);
                             
                         } else { 
+                            console.log(`- ❌ [خطأ]: ليس صورة. النوع: ${media ? media.mimetype : 'مجهول'}`);
                             await client.sendMessage(replyTo, `⚠️ *عذراً!* الملف الذي أرسلته ليس صورة. نوع الملف المكتشف هو: (${media ? media.mimetype : 'غير معروف'}).\nيرجى إرسال صورة بصيغة JPG أو PNG.${signature}`); 
+                            console.log(`===================================================================\n`);
                         }
                     } catch (err) {
-                        console.error('خطأ في تحميل الصورة:', err);
-                        await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء تحميل الصورة من سيرفرات واتساب!* يرجى المحاولة مرة أخرى.${signature}`);
+                        console.error('- ❌ [خطأ فادح]:', err);
+                        await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء تحميل الصورة!* يرجى المحاولة مرة أخرى.${signature}`);
                         clearState(userIdRaw);
                     }
                 } else { 
+                    console.log(`- ⚠️ [تحذير]: لا توجد وسائط مرفقة.`);
                     await client.sendMessage(replyTo, `⚠️ *لم يتم اكتشاف أي مرفقات!* يرجى إرسال *صورة الامتحان* مع رسالتك.${signature}`); 
                 }
                 return;
             }
-            // --- عمليات تحميل PDF (الطلاب) مع الفلتر الذكي ---
-            // --- عمليات تحميل (محاضرة/ملخص/امتحان) للطلاب ---
+
+            // --- عمليات تحميل (محاضرة/ملخص/امتحان) للطلاب مع الفلتر الذكي ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2 && option !== 3) return await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!*${signature}`);
@@ -575,7 +582,7 @@ client.on('message_create', async message => {
                 await client.sendMessage(replyTo, sectionsList + `\n💡 _أرسل رقم الشعبة أو اكتب_ *إلغاء*${signature}`);
                 return;
             }
-            
+
             if (state.step === 'select_section_for_download') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > sections.size) return await client.sendMessage(replyTo, `⚠️ *خيار غير صحيح!*${signature}`);
@@ -621,7 +628,10 @@ client.on('message_create', async message => {
                     state.availableLectures = filteredLectures; state.step = 'select_lecture_for_download'; 
                     updateState(userIdRaw, replyTo, state);
                     let lecturesList = `📄 *قائمة الملفات المتوفرة:*\n━━━━━━━━━━━━━━━━━━\n`;
-                    filteredLectures.forEach((lecture, index) => { lecturesList += `${index + 1}. 📖 ${lecture.subject_name} | 📝 رقم: ${lecture.lecture_number}\n   👨‍🏫 الأستاذ: ${lecture.professor_name}\n\n`; });
+                    filteredLectures.forEach((lecture, index) => { 
+                        const isExam = lecture.type === 'امتحان';
+                        lecturesList += `${index + 1}. ${isExam ? '📸' : '📖'} ${lecture.subject_name} | ${isExam ? 'دورة' : 'رقم'}: ${lecture.lecture_number}\n   👨‍🏫 الأستاذ: ${lecture.professor_name}\n\n`; 
+                    });
                     await client.sendMessage(replyTo, lecturesList + `💡 _أرسل رقم الملف لتحميله أو اكتب_ *إلغاء*${signature}`);
                 } catch (err) { clearState(userIdRaw); }
                 return;
@@ -635,7 +645,8 @@ client.on('message_create', async message => {
                     const media = await client.getMessageById(lecture.message_id);
                     if (media && media.hasMedia) {
                         const mediaData = await media.downloadMedia();
-                        await client.sendMessage(replyTo, mediaData, { caption: `📄 ${lecture.subject_name} - ${lecture.type} ${lecture.lecture_number}${signature}` });
+                        const isExam = lecture.type === 'امتحان';
+                        await client.sendMessage(replyTo, mediaData, { caption: `${isExam ? '📸' : '📄'} ${lecture.subject_name} - ${lecture.type} ${lecture.lecture_number}${signature}` });
                         await message.react('✅');
                     } else { await client.sendMessage(replyTo, `⚠️ *الملف غير متاح في الأرشيف!*${signature}`); }
                 } catch (err) { await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء تحميل الملف!*${signature}`); }
@@ -652,12 +663,12 @@ client.on('message_create', async message => {
 
                 if (option === 9) {
                     const res = await db.query('SELECT subject_name, lecture_number, professor_name, group_name, date_added FROM lectures ORDER BY id ASC');
-                    if (res.rows.length > 0) { const pdfBuffer = await generateLecturesTablePDF(res.rows); const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`); await client.sendMessage(replyTo, media, { caption: `📊 *جدول المحاضرات*${signature}` }); } 
-                    else { await client.sendMessage(replyTo, `⚠️ *لا توجد محاضرات مضافة بعد!*${signature}`); }
+                    if (res.rows.length > 0) { const pdfBuffer = await generateLecturesTablePDF(res.rows); const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`); await client.sendMessage(replyTo, media, { caption: `📊 *جدول المحاضرات والامتحانات*${signature}` }); } 
+                    else { await client.sendMessage(replyTo, `⚠️ *لا توجد بيانات مضافة بعد!*${signature}`); }
                     clearState(userIdRaw); return;
                 }
                 
-                if (option === 10) { await client.sendMessage(replyTo, `📚 *إدارة المحاضرات* 📚\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ تعديل محاضرة\n3️⃣ حذف محاضرة\n\n💡 _أرسل الرقم المطلوب:_${signature}`); updateState(userIdRaw, replyTo, { step: 'lectures_management_menu' }); return; }
+                if (option === 10) { await client.sendMessage(replyTo, `📚 *إدارة المحاضرات* 📚\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ تعديل محاضرة/امتحان\n3️⃣ حذف محاضرة/امتحان\n\n💡 _أرسل الرقم المطلوب:_${signature}`); updateState(userIdRaw, replyTo, { step: 'lectures_management_menu' }); return; }
                 if (option === 11) { await client.sendMessage(replyTo, `🏷️ *إدارة الشعب* 🏷️\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ إضافة شعبة جديدة\n3️⃣ تعديل شعبة\n4️⃣ حذف شعبة\n\n💡 _أرسل الرقم المطلوب:_${signature}`); updateState(userIdRaw, replyTo, { step: 'sections_management_menu' }); return; }
 
                 if (option >= 12 && option <= 15) {
@@ -737,40 +748,43 @@ client.on('message_create', async message => {
                 clearState(userIdRaw); return;
             }
 
-            // إدارة المحاضرات (10)
+            // إدارة المحاضرات والامتحانات (10)
             if (state.step === 'lectures_management_menu') {
                 const opt = parseInt(content);
                 if (opt === 1) {
-                    const res = await db.query('SELECT * FROM lectures ORDER BY id ASC'); let list = `📋 *جميع المحاضرات:*\n━━━━━━━━━━━━━━━━━━\n`;
-                    if (res.rows.length === 0) list += `⚠️ لا توجد محاضرات مضافة!\n`;
-                    res.rows.forEach((l, i) => { list += `${i + 1}. ${l.subject_name} - ${l.type} ${l.lecture_number}\n`; });
+                    const res = await db.query('SELECT * FROM lectures ORDER BY id ASC'); let list = `📋 *جميع الملفات:*\n━━━━━━━━━━━━━━━━━━\n`;
+                    if (res.rows.length === 0) list += `⚠️ لا توجد ملفات مضافة!\n`;
+                    res.rows.forEach((l, i) => { list += `${i + 1}. ${l.type} | ${l.subject_name} - ${l.lecture_number}\n`; });
                     await client.sendMessage(replyTo, list + signature); clearState(userIdRaw); return;
                 }
                 if (opt === 2 || opt === 3) {
                     const res = await db.query('SELECT * FROM lectures ORDER BY id ASC'); state.adminLectures = res.rows;
-                    let list = opt === 2 ? `✏️ *اختر محاضرة للتعديل:*\n━━━━━━━━━━━━━━━━━━\n` : `🗑️ *اختر محاضرة للحذف:*\n━━━━━━━━━━━━━━━━━━\n`;
-                    res.rows.forEach((l, i) => { list += `${i + 1}. ${l.subject_name} - ${l.type} ${l.lecture_number}\n`; });
+                    let list = opt === 2 ? `✏️ *اختر ملف للتعديل:*\n━━━━━━━━━━━━━━━━━━\n` : `🗑️ *اختر ملف للحذف:*\n━━━━━━━━━━━━━━━━━━\n`;
+                    res.rows.forEach((l, i) => { list += `${i + 1}. ${l.type} | ${l.subject_name} - ${l.lecture_number}\n`; });
                     await client.sendMessage(replyTo, list + `\n💡 _أرسل الرقم:_`); updateState(userIdRaw, replyTo, { step: opt === 2 ? 'edit_lecture_select' : 'delete_lecture_select', adminLectures: res.rows }); return;
                 }
             }
             if (state.step === 'edit_lecture_select') {
                 const idx = parseInt(content) - 1; if (isNaN(idx) || idx < 0 || idx >= state.adminLectures.length) return; const lecture = state.adminLectures[idx];
-                await client.sendMessage(replyTo, `✏️ *تعديل محاضرة*\nأرسل المعلومات الجديدة:\n\nاسم المادة: \nرقم: \nالأستاذ: \nالفوج: \nالفصل: \nالشعبة: \n${signature}`);
+                await client.sendMessage(replyTo, `✏️ *تعديل ${lecture.type}*\nأرسل المعلومات الجديدة:\n\nاسم المادة: \nرقم/دورة: \nالأستاذ: \nالفوج: \nالفصل: \nالشعبة: \n${signature}`);
                 updateState(userIdRaw, replyTo, { step: 'edit_lecture_data', dbId: lecture.id }); return;
             }
             if (state.step === 'edit_lecture_data') {
                 const lines = content.split('\n'); const info = {};
                 lines.forEach(l => {
-                    if (l.includes('اسم المادة')) info.subject = l.split(':')[1]?.trim(); if (l.includes('رقم')) info.number = l.split(':')[1]?.trim();
-                    if (l.includes('الأستاذ')) info.professor = l.split(':')[1]?.trim(); if (l.includes('الفوج')) info.group = l.split(':')[1]?.trim();
-                    if (l.includes('الفصل')) info.className = l.split(':')[1]?.trim(); if (l.includes('الشعبة')) info.section = l.split(':')[1]?.trim();
+                    if (l.includes('اسم المادة')) info.subject = l.split(':')[1]?.trim(); 
+                    if (l.includes('رقم') || l.includes('دورة')) info.number = l.split(':')[1]?.trim();
+                    if (l.includes('الأستاذ')) info.professor = l.split(':')[1]?.trim(); 
+                    if (l.includes('الفوج')) info.group = l.split(':')[1]?.trim();
+                    if (l.includes('الفصل')) info.className = l.split(':')[1]?.trim(); 
+                    if (l.includes('الشعبة')) info.section = l.split(':')[1]?.trim();
                 });
                 try { await db.query(`UPDATE lectures SET subject_name=$1, lecture_number=$2, professor_name=$3, group_name=$4, class_name=$5, section_name=$6 WHERE id=$7`, [info.subject, info.number, info.professor, info.group, info.className, info.section, state.dbId]); await client.sendMessage(replyTo, `✅ *تم التعديل بنجاح!* ✨${signature}`); } 
                 catch (e) { await client.sendMessage(replyTo, `⚠️ خطأ!`); } clearState(userIdRaw); return;
             }
             if (state.step === 'delete_lecture_select') {
                 const idx = parseInt(content) - 1; if (isNaN(idx) || idx < 0 || idx >= state.adminLectures.length) return; const lecture = state.adminLectures[idx];
-                await client.sendMessage(replyTo, `🗑️ *متأكد من حذف ${lecture.subject_name}؟* (نعم/لا)${signature}`); updateState(userIdRaw, replyTo, { step: 'delete_lecture_confirm', dbId: lecture.id }); return;
+                await client.sendMessage(replyTo, `🗑️ *متأكد من حذف ${lecture.subject_name} (${lecture.type})؟* (نعم/لا)${signature}`); updateState(userIdRaw, replyTo, { step: 'delete_lecture_confirm', dbId: lecture.id }); return;
             }
             if (state.step === 'delete_lecture_confirm') {
                 if (content.toLowerCase() === 'نعم') { try { await db.query(`DELETE FROM lectures WHERE id=$1`, [state.dbId]); await client.sendMessage(replyTo, `✅ *تم الحذف!* ✨${signature}`); } catch (e) { await client.sendMessage(replyTo, `⚠️ خطأ!`); } }
@@ -803,7 +817,7 @@ client.on('message_create', async message => {
                             await db.query(`DELETE FROM lectures WHERE TRIM(section_name) = $1`, [nameToDelete]); 
                             try { await db.query(`DELETE FROM sections WHERE TRIM(name) = $1`, [nameToDelete]); } catch(e){} 
                         } catch(e) { } 
-                        await client.sendMessage(replyTo, `✅ *تم الحذف الجذري!* ✨\nتم إزالة الشعبة وكل المحاضرات المرتبطة بها نهائياً.`); 
+                        await client.sendMessage(replyTo, `✅ *تم الحذف الجذري!* ✨\nتم إزالة الشعبة وكل الملفات المرتبطة بها نهائياً.`); 
                     }
                 } 
                 clearState(userIdRaw); return; 
@@ -823,7 +837,7 @@ client.on('message_create', async message => {
                 }
                 if (state.step === `delete_auto_${key}_select`) { 
                     const item = state.items[parseInt(content) - 1]; if (!item) return; 
-                    await client.sendMessage(replyTo, `🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)\n⚠️ *تنبيه هام:* سيتم حذفه من القوائم وتنظيف جميع المحاضرات المتعلقة به من قاعدة البيانات نهائياً!${signature}`); 
+                    await client.sendMessage(replyTo, `🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)\n⚠️ *تنبيه هام:* سيتم حذفه من القوائم وتنظيف جميع الملفات المتعلقة به من قاعدة البيانات نهائياً!${signature}`); 
                     updateState(userIdRaw, replyTo, { step: `delete_auto_${key}_confirm`, delId: item.id, delName: item.n }); return; 
                 }
                 if (state.step === `delete_auto_${key}_confirm`) { 
