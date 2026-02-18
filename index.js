@@ -200,7 +200,8 @@ client.on('message_create', async message => {
         const replyTo = isGroupMessage ? currentGroupId : userIdRaw;
         const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
         if (!content) return;
-
+        const contact = await message.getContact();
+        const senderName = contact.pushname || contact.name || "طالب";
         const authorNumber = getCleanNumber(userIdRaw);
         const botNumber = getCleanNumber(client.info.wid);
         const isOwner = (authorNumber === getCleanNumber(OWNER_ID) || authorNumber === getCleanNumber(SECOND_OWNER));
