@@ -145,244 +145,211 @@ function checkFonts() {
     return true;
 }
 
-const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
-const path = require('path');
-
-async function generateLecturesTablePDF(lecturesData) {
-    try {
-        // إنشاء مستند PDF جديد
-        const pdfDoc = await PDFDocument.create();
-        
-        // تحميل خط عربي (Amiri)
-        const fontPath = path.join(__dirname, 'fonts/Amiri-Regular.ttf');
-        const fontBytes = fs.readFileSync(fontPath);
-        const font = await pdfDoc.embedFont(fontBytes, { subset: true });
-        
-        // تحميل خط عريض
-        const boldFontPath = path.join(__dirname, 'fonts/Amiri-Bold.ttf');
-        const boldFontBytes = fs.readFileSync(boldFontPath);
-        const boldFont = await pdfDoc.embedFont(boldFontBytes, { subset: true });
-        
-        // إعداد الصفحة (A4 أفقي)
-        const pageWidth = 841.89;
-        const pageHeight = 595.28;
-        
-        // الفلترة
-        const activeProfs = Array.from(professors.values()).map(v => v.trim());
-        const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
-        const validData = lecturesData.filter(l => 
-            activeProfs.includes((l.professor_name || '').trim()) && 
-            activeSubjects.includes((l.subject_name || '').trim())
-        );
-        
-        const lectures = validData.filter(item => item.type === 'محاضرة');
-        const summaries = validData.filter(item => item.type === 'ملخص');
-        const exams = validData.filter(item => item.type === 'امتحان');
-        
-        // دالة عكس النص للـ RTL
-        const rtlText = (text) => {
-            if (!text) return '';
-            // عكس الكلمات مع الحفاظ على ترتيب الحروف داخل الكلمة
-            return text.split(' ').reverse().join(' ');
-        };
-        
-        // دالة رسم جدول
-        const drawTable = (page, data, headers, startY, columnWidths) => {
-            const margin = 30;
-            const rowHeight = 25;
-            const cellPadding = 5;
-            let y = startY;
-            
-            // رسم الترويسة
-            let x = pageWidth - margin;
-            page.drawRectangle({
-                x: margin,
-                y: y - rowHeight,
-                width: pageWidth - (margin * 2),
-                height: rowHeight,
-                color: rgb(0.173, 0.243, 0.314), // #2C3E50
-            });
-            
-            headers.forEach((header, i) => {
-                x -= columnWidths[i];
-                page.drawText(rtlText(header), {
-                    x: x + cellPadding,
-                    y: y - 18,
-                    size: 12,
-                    font: boldFont,
-                    color: rgb(1, 1, 1),
-                });
-            });
-            
-            y -= rowHeight;
-            
-            // رسم البيانات
-            data.forEach((row, rowIndex) => {
-                // خلفية متناوبة
-                if (rowIndex % 2 === 0) {
-                    page.drawRectangle({
-                        x: margin,
-                        y: y - rowHeight,
-                        width: pageWidth - (margin * 2),
-                        height: rowHeight,
-                        color: rgb(0.925, 0.941, 0.945), // #ECF0F1
-                    });
-                }
-                
-                x = pageWidth - margin;
-                row.forEach((cell, cellIndex) => {
-                    x -= columnWidths[cellIndex];
-                    page.drawText(rtlText(String(cell)), {
-                        x: x + cellPadding,
-                        y: y - 18,
-                        size: 10,
-                        font: font,
-                        color: rgb(0, 0, 0),
-                    });
-                });
-                
-                y -= rowHeight;
-                
-                // صفحة جديدة إذا امتلأت
-                if (y < 50) {
-                    const newPage = pdfDoc.addPage([pageWidth, pageHeight]);
-                    return { page: newPage, y: startY };
-                }
-            });
-            
-            return { page, y };
-        };
-        
-        // الصفحة الأولى
-        let page = pdfDoc.addPage([pageWidth, pageHeight]);
-        let y = pageHeight - 50;
-        
-        // العنوان الرئيسي
-        page.drawText('الأرشيف الأكاديمي الشامل', {
-            x: pageWidth / 2 - 100,
-            y: y,
-            size: 24,
-            font: boldFont,
-            color: rgb(0.173, 0.243, 0.314),
-        });
-        
-        y -= 30;
-        
-        // التاريخ
-        const dateText = `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`;
-        page.drawText(rtlText(dateText), {
-            x: pageWidth / 2 - 60,
-            y: y,
-            size: 12,
-            font: font,
-            color: rgb(0.5, 0.5, 0.5),
-        });
-        
-        y -= 40;
-        
-        // أعمدة جدول المحاضرات والملخصات
-        const normalHeaders = ['التسلسل', 'الشعبة', 'المادة', 'الفصل', 'الرقم', 'الأستاذ', 'الفوج', 'التاريخ'];
-        const examHeaders = ['التسلسل', 'الشعبة', 'المادة', 'الفصل', 'السنة/الدورة', 'الأستاذ', 'التاريخ'];
-        const normalWidths = [50, 60, 120, 80, 50, 100, 60, 80];
-        const examWidths = [50, 60, 120, 80, 80, 100, 80];
-        
-        // جدول المحاضرات
-        if (lectures.length > 0) {
-            y -= 20;
-            page.drawText('جدول المحاضرات', {
-                x: pageWidth - 100,
-                y: y,
-                size: 16,
-                font: boldFont,
-                color: rgb(0.161, 0.502, 0.725),
-            });
-            y -= 10;
-            
-            const lecturesRows = lectures.map((item, i) => [
-                (i + 1).toString(),
-                item.section_name || '',
-                item.subject_name || '',
-                item.class_name || '',
-                item.lecture_number || '',
-                item.professor_name || '',
-                item.group_name || '',
-                item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد'
-            ]);
-            
-            const result = drawTable(page, lecturesRows, normalHeaders, y, normalWidths);
-            page = result.page;
-            y = result.y;
-        }
-        
-        // جدول الملخصات
-        if (summaries.length > 0) {
-            y -= 30;
-            page.drawText('جدول الملخصات', {
-                x: pageWidth - 100,
-                y: y,
-                size: 16,
-                font: boldFont,
-                color: rgb(0.161, 0.502, 0.725),
-            });
-            y -= 10;
-            
-            const summariesRows = summaries.map((item, i) => [
-                (i + 1).toString(),
-                item.section_name || '',
-                item.subject_name || '',
-                item.class_name || '',
-                item.lecture_number || '',
-                item.professor_name || '',
-                item.group_name || '',
-                item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد'
-            ]);
-            
-            const result = drawTable(page, summariesRows, normalHeaders, y, normalWidths);
-            page = result.page;
-            y = result.y;
-        }
-        
-        // جدول الامتحانات
-        if (exams.length > 0) {
-            y -= 30;
-            page.drawText('جدول الامتحانات', {
-                x: pageWidth - 100,
-                y: y,
-                size: 16,
-                font: boldFont,
-                color: rgb(0.161, 0.502, 0.725),
-            });
-            y -= 10;
-            
-            const examsRows = exams.map((item, i) => [
-                (i + 1).toString(),
-                item.section_name || '',
-                item.subject_name || '',
-                item.class_name || '',
-                item.lecture_number || '',
-                item.professor_name || '',
-                item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد'
-            ]);
-            
-            const result = drawTable(page, examsRows, examHeaders, y, examWidths);
-            page = result.page;
-            y = result.y;
-        }
-        
-        // حفظ وإرجاع
-        const pdfBytes = await pdfDoc.save();
-        return Buffer.from(pdfBytes);
-        
-    } catch (error) {
-        throw error;
-    }
+// دالة لتحويل النص العربي للعرض الصحيح في RTL
+function reverseArabicText(text) {
+    if (!text) return '';
+    // تقسيم النص إلى كلمات وعكس ترتيبها
+    return text.split(' ').reverse().join(' ');
 }
 
+async function generateLecturesTablePDF(lecturesData) {
+    return new Promise((resolve, reject) => {
+        try {
+            if (!checkFonts()) { 
+                reject(new Error('الخطوط المطلوبة غير موجودة.')); 
+                return; 
+            }
+            
+            const fonts = { 
+                Amiri: { 
+                    normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'), 
+                    bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf') 
+                } 
+            };
+            const printer = new PdfPrinter(fonts);
 
+            // الفلترة الذكية للأساتذة والمواد المحذوفة
+            const activeProfs = Array.from(professors.values()).map(v => v.trim());
+            const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
+            const validData = lecturesData.filter(l => 
+                activeProfs.includes((l.professor_name || '').trim()) && 
+                activeSubjects.includes((l.subject_name || '').trim())
+            );
 
+            // تقسيم البيانات
+            const lectures = validData.filter(item => item.type === 'محاضرة');
+            const summaries = validData.filter(item => item.type === 'ملخص');
+            const exams = validData.filter(item => item.type === 'امتحان');
 
+            // دالة مساعدة لتوليد الجداول
+            const createTableSection = (title, data, type) => {
+                const tableBody = [];
+                
+                // إعداد الترويسات - تم عكس الترتيب للـ RTL
+                if (type === 'امتحان') {
+                    tableBody.push([
+                        { text: reverseArabicText('التاريخ'), style: 'tableHeader' },
+                        { text: reverseArabicText('الأستاذ'), style: 'tableHeader' },
+                        { text: reverseArabicText('السنة / الدورة'), style: 'tableHeader' },
+                        { text: reverseArabicText('الفصل'), style: 'tableHeader' },
+                        { text: reverseArabicText('المادة'), style: 'tableHeader' },
+                        { text: reverseArabicText('الشعبة'), style: 'tableHeader' },
+                        { text: reverseArabicText('التسلسل'), style: 'tableHeader' }
+                    ]);
+                    data.forEach((item, index) => {
+                        const date = item.date_added 
+                            ? new Date(item.date_added).toLocaleDateString('ar-EG') 
+                            : reverseArabicText('غير محدد');
+                        tableBody.push([
+                            reverseArabicText(date),
+                            reverseArabicText(item.professor_name || ''),
+                            reverseArabicText(item.lecture_number || ''),
+                            reverseArabicText(item.class_name || ''),
+                            reverseArabicText(item.subject_name || ''),
+                            reverseArabicText(item.section_name || ''),
+                            (index + 1).toString()
+                        ]);
+                    });
+                } else {
+                    tableBody.push([
+                        { text: reverseArabicText('التاريخ'), style: 'tableHeader' },
+                        { text: reverseArabicText('الفوج'), style: 'tableHeader' },
+                        { text: reverseArabicText('الأستاذ'), style: 'tableHeader' },
+                        { text: reverseArabicText('الرقم'), style: 'tableHeader' },
+                        { text: reverseArabicText('الفصل'), style: 'tableHeader' },
+                        { text: reverseArabicText('المادة'), style: 'tableHeader' },
+                        { text: reverseArabicText('الشعبة'), style: 'tableHeader' },
+                        { text: reverseArabicText('التسلسل'), style: 'tableHeader' }
+                    ]);
+                    data.forEach((item, index) => {
+                        const date = item.date_added 
+                            ? new Date(item.date_added).toLocaleDateString('ar-EG') 
+                            : reverseArabicText('غير محدد');
+                        tableBody.push([
+                            reverseArabicText(date),
+                            reverseArabicText(item.group_name || ''),
+                            reverseArabicText(item.professor_name || ''),
+                            reverseArabicText(item.lecture_number || ''),
+                            reverseArabicText(item.class_name || ''),
+                            reverseArabicText(item.subject_name || ''),
+                            reverseArabicText(item.section_name || ''),
+                            (index + 1).toString()
+                        ]);
+                    });
+                }
 
+                const section = [
+                    { text: reverseArabicText(title), style: 'sectionTitle' }
+                ];
 
+                if (data.length > 0) {
+                    section.push({
+                        table: {
+                            headerRows: 1,
+                            widths: type === 'امتحان' 
+                                ? ['auto', '*', 'auto', 'auto', '*', 'auto', 'auto'] 
+                                : ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
+                            body: tableBody
+                        },
+                        layout: {
+                            fillColor: function (rowIndex) {
+                                return (rowIndex === 0) ? '#2C3E50' : (rowIndex % 2 === 0 ? '#ECF0F1' : null);
+                            },
+                            hLineWidth: function () { return 1; },
+                            vLineWidth: function () { return 1; },
+                            hLineColor: function () { return '#BDC3C7'; },
+                            vLineColor: function () { return '#BDC3C7'; }
+                        },
+                        margin: [0, 0, 0, 25]
+                    });
+                } else {
+                    section.push({ 
+                        text: reverseArabicText('لا توجد بيانات مضافة في هذا القسم حالياً.'), 
+                        style: 'noData', 
+                        margin: [0, 0, 0, 25] 
+                    });
+                }
+
+                return section;
+            };
+
+            const docDefinition = {
+                defaultStyle: { 
+                    font: 'Amiri', 
+                    alignment: 'right', 
+                    fontSize: 11
+                },
+                content: [
+                    { text: reverseArabicText('الأرشيف الأكاديمي الشامل'), style: 'mainTitle' },
+                    { 
+                        text: reverseArabicText(`تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`), 
+                        style: 'subTitle' 
+                    },
+                    { 
+                        canvas: [{ 
+                            type: 'line', 
+                            x1: 0, y1: 5, 
+                            x2: 770, y2: 5, 
+                            lineWidth: 2, 
+                            lineColor: '#2980B9' 
+                        }], 
+                        margin: [0, 0, 0, 20] 
+                    },
+                    
+                    ...createTableSection('جدول المحاضرات', lectures, 'محاضرة'),
+                    ...createTableSection('جدول الملخصات', summaries, 'ملخص'),
+                    ...createTableSection('جدول الامتحانات', exams, 'امتحان')
+                ],
+                styles: {
+                    mainTitle: { 
+                        fontSize: 24, 
+                        bold: true, 
+                        alignment: 'center', 
+                        color: '#2C3E50', 
+                        margin: [0, 0, 0, 5] 
+                    },
+                    subTitle: { 
+                        fontSize: 12, 
+                        alignment: 'center', 
+                        color: '#7F8C8D', 
+                        margin: [0, 0, 0, 10] 
+                    },
+                    sectionTitle: { 
+                        fontSize: 18, 
+                        bold: true, 
+                        color: '#2980B9', 
+                        margin: [0, 10, 0, 10], 
+                        decoration: 'underline' 
+                    },
+                    tableHeader: { 
+                        bold: true, 
+                        fontSize: 12, 
+                        color: 'white', 
+                        alignment: 'center', 
+                        margin: [0, 4, 0, 4] 
+                    },
+                    noData: { 
+                        fontSize: 12, 
+                        italic: true, 
+                        color: '#95A5A6', 
+                        alignment: 'center' 
+                    }
+                },
+                pageOrientation: 'landscape', 
+                pageSize: 'A4'
+            };
+            
+            const pdfDoc = printer.createPdfKitDocument(docDefinition);
+            const chunks = [];
+            pdfDoc.on('data', chunk => chunks.push(chunk));
+            pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
+            pdfDoc.on('error', error => reject(error));
+            pdfDoc.end();
+        } catch (error) { 
+            reject(error); 
+        }
+    });
+}
 
 // أحداث العميل
 // ============================================
@@ -740,6 +707,20 @@ client.on('message_create', async message => {
                 return;
             }
 
+            if (state.step === 'waiting_exam_form') {
+                const lines = content.split('\n'); const info = {};
+                lines.forEach(line => {
+                    if (line.includes('سنة') || line.includes('دورة')) info.number = line.split(':')[1]?.trim();
+                    if (line.includes('المادة')) info.subject = line.split(':')[1]?.trim();
+                    if (line.includes('الأستاذ') || line.includes('الاستاد')) info.professor = line.split(':')[1]?.trim();
+                });
+                if (!info.number || !info.subject || !info.professor) { await sendReply(`⚠️ *الاستمارة ناقصة!* يرجى ملء كافة البيانات.${signature}`); return; }
+                state.formData = info; state.step = 'waiting_exam_pdf'; 
+                updateState(userIdRaw, replyTo, state);
+                await sendReply(`✅ *تم استلام البيانات.* يرجى الآن إرسال ملف الـ *PDF* الخاص بالامتحان.${signature}`);
+                return;
+            }
+
             if (state.step === 'waiting_pdf') {
                 if (message.hasMedia && message.type === 'document') {
                     const media = await message.downloadMedia();
@@ -750,118 +731,68 @@ client.on('message_create', async message => {
                         try {
                             const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
-                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
-                            await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), media.filename || `${state.pdfType}.pdf`]);
-
-                            let newItemsAdded = [];
-                            const className = state.className.trim();
-                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
-                            const groupName = state.formData.group.trim();
-                            if (groupName && !Array.from(groupsData.values()).includes(groupName)) { groupsData.set(Date.now().toString() + '_g', groupName); saveGroups(); newItemsAdded.push(`👥 فوج: ${groupName}`); }
-                            const professorName = state.formData.professor.trim();
-                            if (professorName && !Array.from(professors.values()).includes(professorName)) { professors.set(Date.now().toString() + '_p', professorName); saveProfessors(); newItemsAdded.push(`👨‍🏫 أستاذ: ${professorName}`); }
-                            const subjectName = state.formData.subject.trim();
-                            if (subjectName && !Array.from(subjects.values()).includes(subjectName)) { subjects.set(Date.now().toString() + '_s', subjectName); saveSubjects(); newItemsAdded.push(`📖 مادة: ${subjectName}`); }
-
-                            let successMsg = `✅ *تم الحفظ بنجاح!* ✨\nتم تأمين الملف في قاعدة البيانات.`;
-                            if (newItemsAdded.length > 0) successMsg += `\n\n🆕 *تم إضافة عناصر جديدة تلقائياً:*\n${newItemsAdded.join('\n')}`;
-                            await sendReply(successMsg + signature);
-                            clearState(userIdRaw); await message.react('✅');
-                        } catch (err) {
-                            await sendReply(`⚠️ *حدث خطأ أثناء الحفظ في القاعدة!* تم الرفع للأرشيف فقط.${signature}`);
-                            clearState(userIdRaw);
+                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)`;
+                            const values = [state.pdfType, state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, senderName, media.filename || 'lecture.pdf'];
+                            await db.query(query, values);
+                            
+                            await sendReply(`✅ *تم حفظ الـ ${state.pdfType} بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📝 الرقم: ${state.formData.number}${signature}`);
+                            await message.react('✅');
+                        } catch (error) {
+                            console.error('خطأ في الحفظ:', error);
+                            await sendReply(`❌ *حدث خطأ أثناء الحفظ!* يرجى المحاولة مرة أخرى.${signature}`);
                         }
-                    } else { await sendReply(`⚠️ *يرجى إرسال ملف PDF فقط!*${signature}`); }
-                } else { await sendReply(`⚠️ *يرجى إرسال ملف PDF!*${signature}`); }
+                    } else { await sendReply(`⚠️ *يرجى إرسال ملف بصيغة PDF فقط!*${signature}`); }
+                } else { await sendReply(`⚠️ *لم تقم بإرسال أي ملف PDF.* يرجى إرسال الملف المطلوب.${signature}`); }
+                clearState(userIdRaw);
                 return;
             }
 
-            if (state.step === 'waiting_exam_form') {
-                const lines = content.split('\n'); const info = {};
-                lines.forEach(line => {
-                    if (line.includes('سنة') || line.includes('دورة')) info.number = line.split(':')[1]?.trim();
-                    if (line.includes('المادة')) info.subject = line.split(':')[1]?.trim();
-                    if (line.includes('الأستاذ') || line.includes('الاستاد')) info.professor = line.split(':')[1]?.trim();
-                });
-                if (!info.number || !info.subject || !info.professor) { await sendReply(`⚠️ *الاستمارة ناقصة!* يرجى ملء كافة البيانات.${signature}`); return; }
-                state.formData = info; 
-                state.formData.group = 'عام'; 
-                state.step = 'waiting_exam_image'; 
-                updateState(userIdRaw, replyTo, state);
-                await sendReply(`✅ *تم استلام البيانات.* يرجى الآن إرسال *صورة الامتحان* 📸 لـ (${state.className}).${signature}`);
-                return;
-            }
+            if (state.step === 'waiting_exam_pdf') {
+                if (message.hasMedia && message.type === 'document') {
+                    const media = await message.downloadMedia();
+                    if (media.mimetype === 'application/pdf') {
+                        await message.react('⏳');
+                        const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
-            if (state.step === 'waiting_exam_image') {
-                if (message.hasMedia) {
-                    await sendReply(`⏳ *جاري استلام الصورة وتحليلها...*${signature}`);
-                    try {
-                        const media = await message.downloadMedia();
-                        if (!media) throw new Error("فشل تحميل الوسائط من سيرفر واتساب.");
-
-                        if (media.mimetype && media.mimetype.startsWith('image/')) {
-                            const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n🗓️ السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
-
+                        try {
                             const archiveMsg = await client.sendMessage(EXAMS_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
+                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)`;
+                            const values = ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.number, messageId, senderName, media.filename || 'exam.pdf'];
+                            await db.query(query, values);
                             
-                            const fileName = media.filename || `exam_${Date.now()}.${media.mimetype.split('/')[1]}`;
-
-                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
-                            await db.query(query, ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), fileName]);
-
-                            let newItemsAdded = [];
-                            const className = state.className.trim();
-                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
-                            const professorName = state.formData.professor.trim();
-                            if (professorName && !Array.from(professors.values()).includes(professorName)) { professors.set(Date.now().toString() + '_p', professorName); saveProfessors(); newItemsAdded.push(`👨‍🏫 أستاذ: ${professorName}`); }
-                            const subjectName = state.formData.subject.trim();
-                            if (subjectName && !Array.from(subjects.values()).includes(subjectName)) { subjects.set(Date.now().toString() + '_s', subjectName); saveSubjects(); newItemsAdded.push(`📖 مادة: ${subjectName}`); }
-
-                            let successMsg = `✅ *تم حفظ الامتحان بنجاح!* ✨\nتم تأمين الصورة في قاعدة البيانات.`;
-                            if (newItemsAdded.length > 0) successMsg += `\n\n🆕 *تم إضافة عناصر جديدة تلقائياً:*\n${newItemsAdded.join('\n')}`;
-                            await sendReply(successMsg + signature);
-                            clearState(userIdRaw); 
+                            await sendReply(`✅ *تم حفظ الامتحان بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}${signature}`);
                             await message.react('✅');
-                            
-                        } else { 
-                            await sendReply(`⚠️ *عذراً!* الملف الذي أرسلته ليس صورة صالحة.\nيرجى إعادة إرسال صورة بصيغة JPG أو PNG.${signature}`); 
+                        } catch (error) {
+                            console.error('خطأ في الحفظ:', error);
+                            await sendReply(`❌ *حدث خطأ أثناء الحفظ!* يرجى المحاولة مرة أخرى.${signature}`);
                         }
-                    } catch (err) {
-                        console.error('خطأ:', err);
-                        await sendReply(`❌ *حدث خطأ فادح أثناء المعالجة!*\nتم إلغاء العملية، يرجى المحاولة لاحقاً.${signature}`);
-                        clearState(userIdRaw);
-                    }
-                } else { 
-                    await sendReply(`⚠️ *لم يتم اكتشاف أي صورة!* يرجى إرفاق *صورة الامتحان* مع رسالتك (لا ترسل نصاً فقط).${signature}`); 
-                }
+                    } else { await sendReply(`⚠️ *يرجى إرسال ملف بصيغة PDF فقط!*${signature}`); }
+                } else { await sendReply(`⚠️ *لم تقم بإرسال أي ملف PDF.* يرجى إرسال الملف المطلوب.${signature}`); }
+                clearState(userIdRaw);
                 return;
             }
 
-            // --- عمليات تحميل (محاضرة/ملخص/امتحان) للطلاب ---
+            // --- عمليات التحميل (Download) ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
-                if (option !== 1 && option !== 2 && option !== 3) return await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                
-                if (option === 1) state.pdfType = 'محاضرة';
-                if (option === 2) state.pdfType = 'ملخص';
-                if (option === 3) state.pdfType = 'امتحان';
-
-                state.step = 'select_section_for_download'; 
+                if (option < 1 || option > 3) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم من 1 إلى 3.${signature}`); return; }
+                state.downloadType = option === 1 ? 'محاضرة' : (option === 2 ? 'ملخص' : 'امتحان');
+                state.step = 'select_section_for_download';
                 updateState(userIdRaw, replyTo, state);
-                let sectionsList = `📚 *اختر الشعبة:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1;
-                for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
+                
+                let sectionsList = `📚 *اختر الشعبة:*\n━━━━━━━━━━━━━━━━━━\n`; let idx = 1;
+                for (const [id, name] of sections) { sectionsList += `${idx++}. ${name}\n`; }
                 await sendReply(sectionsList + `\n💡 _أرسل رقم الشعبة أو اكتب_ *إلغاء*${signature}`);
                 return;
             }
 
             if (state.step === 'select_section_for_download') {
                 const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > sections.size) return await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                const sectionId = Array.from(sections.keys())[option - 1]; 
-                state.sectionName = sections.get(sectionId);
-                
-                state.step = 'select_class_for_download'; 
+                if (isNaN(option) || option < 1 || option > sections.size) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم الشعبة الصحيح.${signature}`); return; }
+                const sectionId = Array.from(sections.keys())[option - 1];
+                state.sectionId = sectionId; state.sectionName = sections.get(sectionId);
+                state.step = 'select_class_for_download';
                 updateState(userIdRaw, replyTo, state);
                 
                 let classList = `🏫 *اختر الفصل:*\n━━━━━━━━━━━━━━━━━━\n`;
@@ -872,257 +803,441 @@ client.on('message_create', async message => {
 
             if (state.step === 'select_class_for_download') {
                 const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > 6) return await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم من 1 إلى 6.${signature}`);
+                if (isNaN(option) || option < 1 || option > 6) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم من 1 إلى 6.${signature}`); return; }
+                state.className = FIXED_CLASSES[option - 1];
                 
-                state.className = FIXED_CLASSES[option - 1]; 
-
                 try {
-                    const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY id DESC`;
-                    const res = await db.query(query, [state.pdfType, state.sectionName, state.className]);
+                    const query = `SELECT * FROM lectures WHERE type = $1 AND section_name = $2 AND class_name = $3 ORDER BY date_added DESC`;
+                    const res = await db.query(query, [state.downloadType, state.sectionName, state.className]);
                     
-                    const activeProfs = Array.from(professors.values()).map(v => v.trim());
-                    const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
-                    const filteredLectures = res.rows.filter(l => activeProfs.includes((l.professor_name || '').trim()) && activeSubjects.includes((l.subject_name || '').trim()));
-
-                    if (filteredLectures.length === 0) { 
-                        await sendReply(`⚠️ لا توجد ملفات متوفرة حالياً في *${state.className}*.${signature}`); 
-                        clearState(userIdRaw); return; 
+                    if (res.rows.length === 0) {
+                        await sendReply(`⚠️ *لا توجد ${state.downloadType}ات متاحة لهذه الشعبة والفصل حالياً.*${signature}`);
+                    } else {
+                        let listMsg = `📚 *قائمة ${state.downloadType}ات المتاحة*\n📖 الشعبة: ${state.sectionName}\n🏫 الفصل: ${state.className}\n━━━━━━━━━━━━━━━━━━\n\n`;
+                        res.rows.forEach((item, idx) => {
+                            const date = new Date(item.date_added).toLocaleDateString('ar-EG');
+                            if (state.downloadType === 'امتحان') {
+                                listMsg += `${idx + 1}. 📖 ${item.subject_name} | 📅 ${item.lecture_number} | 👨‍🏫 ${item.professor_name} | 📆 ${date}\n`;
+                            } else {
+                                listMsg += `${idx + 1}. 📖 ${item.subject_name} | 📝 ${item.lecture_number} | 👨‍🏫 ${item.professor_name} | 👥 ${item.group_name || '-'} | 📆 ${date}\n`;
+                            }
+                        });
+                        listMsg += `\n💡 _أرسل رقم ${state.downloadType} للتحميل أو اكتب_ *إلغاء*`;
+                        
+                        state.availableItems = res.rows;
+                        state.step = 'select_item_to_download';
+                        updateState(userIdRaw, replyTo, state);
+                        await sendReply(listMsg + signature);
                     }
-                    
-                    state.availableLectures = filteredLectures; state.step = 'select_lecture_for_download'; 
-                    updateState(userIdRaw, replyTo, state);
-                    let lecturesList = `📄 *قائمة الملفات المتوفرة (${state.className}):*\n━━━━━━━━━━━━━━━━━━\n`;
-                    filteredLectures.forEach((lecture, index) => { 
-                        const isExam = lecture.type === 'امتحان';
-                        lecturesList += `${index + 1}. ${isExam ? '📸' : '📖'} ${lecture.subject_name} | ${isExam ? 'دورة' : 'رقم'}: ${lecture.lecture_number}\n   👨‍🏫 الأستاذ: ${lecture.professor_name}\n\n`; 
-                    });
-                    await sendReply(lecturesList + `💡 _أرسل رقم الملف لتحميله أو اكتب_ *إلغاء*${signature}`);
-                } catch (err) { clearState(userIdRaw); }
+                } catch (error) {
+                    console.error('خطأ في البحث:', error);
+                    await sendReply(`❌ *حدث خطأ أثناء البحث!* يرجى المحاولة لاحقاً.${signature}`);
+                    clearState(userIdRaw);
+                }
                 return;
             }
 
-            if (state.step === 'select_lecture_for_download') {
+            if (state.step === 'select_item_to_download') {
                 const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > state.availableLectures.length) return await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                const lecture = state.availableLectures[option - 1];
+                if (isNaN(option) || option < 1 || option > state.availableItems.length) {
+                    await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم صحيح.${signature}`);
+                    return;
+                }
+                
+                const selectedItem = state.availableItems[option - 1];
+                
                 try {
-                    const media = await client.getMessageById(lecture.message_id);
-                    if (media && media.hasMedia) {
-                        const mediaData = await media.downloadMedia();
-                        const isExam = lecture.type === 'امتحان';
-                        await sendReply(mediaData, { caption: `${isExam ? '📸' : '📄'} ${lecture.subject_name} - ${lecture.type} ${lecture.lecture_number}${signature}` });
-                        await message.react('✅');
-                    } else { await sendReply(`⚠️ *الملف غير متاح في الأرشيف!*${signature}`); }
-                } catch (err) { await sendReply(`⚠️ *حدث خطأ أثناء تحميل الملف!*${signature}`); }
-                clearState(userIdRaw); return;
+                    // استرجاع الملف من المجموعة الأرشيف
+                    const archiveGroup = state.downloadType === 'امتحان' ? EXAMS_ARCHIVE_GROUP : PDF_ARCHIVE_GROUP;
+                    const messages = await client.getMessagesById([selectedItem.message_id]);
+                    
+                    if (messages && messages.length > 0 && messages[0].hasMedia) {
+                        const media = await messages[0].downloadMedia();
+                        await sendReply(media, { 
+                            caption: `📥 *${state.downloadType}*\n📖 المادة: ${selectedItem.subject_name}\n${state.downloadType === 'امتحان' ? '📅 السنة/الدورة' : '📝 الرقم'}: ${selectedItem.lecture_number}\n👨‍🏫 الأستاذ: ${selectedItem.professor_name}${signature}` 
+                        });
+                    } else {
+                        await sendReply(`❌ *عذراً، لم أتمكن من استرجاع الملف.* قد يكون تم حذفه من الأرشيف.${signature}`);
+                    }
+                } catch (error) {
+                    console.error('خطأ في التحميل:', error);
+                    await sendReply(`❌ *حدث خطأ أثناء تحميل الملف!* يرجى المحاولة لاحقاً.${signature}`);
+                }
+                
+                clearState(userIdRaw);
+                return;
             }
 
             // --- لوحة الإدارة ---
-            if (isOwner && state.step === 'admin_menu') {
+            if (state.step === 'admin_menu') {
                 const option = parseInt(content);
                 
-                if (option === 5) { await sendReply(`📞 *أرسل رقم المبرمج الجديد* (مثال: 212600000000):${signature}`); updateState(userIdRaw, replyTo, { step: 'add_dev_number' }); return; }
-                if (option === 6) { await sendReply(`📞 *أرسل رقم المبرمج لإزالته* (مثال: 212600000000):${signature}`); updateState(userIdRaw, replyTo, { step: 'remove_dev_number' }); return; }
-                if (option === 8) { await sendReply(`📌 *لتثبيت رسالة:*\nفي المجموعة، اعمل "رد/Reply" للرسالة المطلوبة واكتب الأمر:\n*!تثبيت*${signature}`); clearState(userIdRaw); return; }
+                switch(option) {
+                    case 1: // إضافة عضو
+                        await sendReply(`👤 *إضافة عضو لمجموعة*\n\nيرجى إرسال رابط المجموعة أو معرف المجموعة (Group ID) ثم رقم العضو بصيغة:\n\nمعرف_المجموعة رقم_العضو\n\nمثال:\n120363xxx@g.us 212600000000${signature}`);
+                        state.step = 'add_member_group';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 2: // حذف عضو
+                        await sendReply(`👤 *حذف عضو من مجموعة*\n\nيرجى إرسال معرف المجموعة ورقم العضو بصيغة:\n\nمعرف_المجموعة رقم_العضو${signature}`);
+                        state.step = 'remove_member_group';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 3: // ترقية عضو
+                        await sendReply(`⬆️ *ترقية عضو لمشرف*\n\nيرجى إرسال معرف المجموعة ورقم العضو بصيغة:\n\nمعيد_المجموعة رقم_العضو${signature}`);
+                        state.step = 'promote_member';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 4: // خفض مشرف
+                        await sendReply(`⬇️ *خفض مشرف إلى عضو*\n\nيرجى إرسال معرف المجموعة ورقم المشرف بصيغة:\n\nمعرف_المجموعة رقم_المشرف${signature}`);
+                        state.step = 'demote_member';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 5: // إضافة مبرمج
+                        await sendReply(`👨‍💻 *إضافة مبرمج جديد*\n\nيرجى إرسال رقم المبرمج الجديد (بدون + أو مسافات):${signature}`);
+                        state.step = 'add_admin';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 6: // حذف مبرمج
+                        await sendReply(`❌ *حذف مبرمج*\n\nيرجى إرسال رقم المبرمج المراد حذفه:${signature}`);
+                        state.step = 'remove_admin';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 7: // تنظيف المجموعة
+                        await sendReply(`🧹 *تنظيف مجموعة*\n\nيرجى إرسال معرف المجموعة المراد تنظيفها:${signature}`);
+                        state.step = 'clean_group';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 8: // تثبيت رسالة
+                        await sendReply(`📌 *تثبيت رسالة*\n\nقم بالرد (Reply) على الرسالة المراد تثبيتها في أي مجموعة واكتب:\n!تثبيت${signature}`);
+                        clearState(userIdRaw);
+                        break;
+                        
+                    case 9: // جدول المحاضرات
+                        try {
+                            const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
+                            if (res.rows.length === 0) {
+                                await sendReply(`⚠️ *لا توجد بيانات مضافة حتى الآن.*${signature}`);
+                            } else {
+                                const pdfBuffer = await generateLecturesTablePDF(res.rows);
+                                const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول_الأرشيف.pdf`);
+                                await sendReply(media, { caption: `📊 *جدول الأرشيف الشامل* ✨${signature}` });
+                            }
+                        } catch (error) {
+                            await sendReply(`❌ *حدث خطأ!*${signature}`);
+                        }
+                        clearState(userIdRaw);
+                        break;
+                        
+                    case 10: // إدارة المحاضرات
+                        await sendReply(`📚 *إدارة المحاضرات*\n\n1. 📊 عرض الإحصائيات\n2. 🗑️ حذف محاضرة\n3. 🔄 تحديث بيانات\n\n💡 أرسل رقم الخيار:${signature}`);
+                        state.step = 'manage_lectures';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 11: // إدارة الشعب
+                        await sendReply(`🏷️ *إدارة الشعب*\n\nالشعب الحالية:\n${Array.from(sections.values()).map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n1. ➕ إضافة شعبة\n2. ➖ حذف شعبة\n\n💡 أرسل رقم الخيار أو اسم الشعبة الجديدة:${signature}`);
+                        state.step = 'manage_sections';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 12: // إدارة الفصول
+                        await sendReply(`🏫 *إدارة الفصول*\n\nالفصول الحالية:\n${FIXED_CLASSES.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n💡 الفصول ثابتة ولا يمكن تعديلها.${signature}`);
+                        clearState(userIdRaw);
+                        break;
+                        
+                    case 13: // إدارة الأفواج
+                        await sendReply(`👥 *إدارة الأفواج*\n\nالأفواج الحالية:\n${Array.from(groupsData.values()).map((g, i) => `${i + 1}. ${g}`).join('\n') || 'لا توجد أفواج'}\n\n1. ➕ إضافة فوج\n2. ➖ حذف فوج\n\n💡 أرسل رقم الخيار:${signature}`);
+                        state.step = 'manage_groups';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 14: // إدارة الأساتذة
+                        await sendReply(`👨‍🏫 *إدارة الأساتذة*\n\nالأساتذة الحاليون:\n${Array.from(professors.values()).map((p, i) => `${i + 1}. ${p}`).join('\n') || 'لا يوجد أساتذة'}\n\n1. ➕ إضافة أستاذ\n2. ➖ حذف أستاذ\n\n💡 أرسل رقم الخيار:${signature}`);
+                        state.step = 'manage_professors';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 15: // إدارة المواد
+                        await sendReply(`📖 *إدارة المواد*\n\nالمواد الحالية:\n${Array.from(subjects.values()).map((s, i) => `${i + 1}. ${s}`).join('\n') || 'لا توجد مواد'}\n\n1. ➕ إضافة مادة\n2. ➖ حذف مادة\n\n💡 أرسل رقم الخيار:${signature}`);
+                        state.step = 'manage_subjects';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 16: // بث لجميع المجموعات
+                        await sendReply(`🌐 *بث لجميع المجموعات*\n\nيرجى إرسال الرسالة أو الصورة أو الملف المراد بثه:${signature}`);
+                        state.step = 'broadcast_all';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 17: // بث لمجموعة مخصصة
+                        await sendReply(`🎯 *بث لمجموعة مخصصة*\n\nيرجى إرسال معرف المجموعة ثم الرسالة بصيغة:\n\nمعرف_المجموعة | الرسالة${signature}`);
+                        state.step = 'broadcast_specific';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 18: // رفع دليل PDF
+                        await sendReply(`📚 *رفع كتاب الدليل (PDF)*\n\nيرجى إرسال ملف PDF الخاص بدليل الاستخدام:${signature}`);
+                        state.step = 'waiting_for_manual_pdf';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    case 19: // رفع فيديو الشرح
+                        await sendReply(`🎥 *رفع فيديو الشرح*\n\nيرجى إرسال الفيديو التوضيحي:${signature}`);
+                        state.step = 'waiting_for_manual_video';
+                        updateState(userIdRaw, replyTo, state);
+                        break;
+                        
+                    default:
+                        await sendReply(`⚠️ *خيار غير صحيح!* يرجى إرسال رقم من 1 إلى 19.${signature}`);
+                }
+                return;
+            }
 
-                if (option === 9) {
-                    const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
-                    if (res.rows.length > 0) { const pdfBuffer = await generateLecturesTablePDF(res.rows); const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`); await sendReply(media, { caption: `📊 *جدول المحاضرات والامتحانات*${signature}` }); } 
-                    else { await sendReply(`⚠️ *لا توجد بيانات مضافة بعد!*${signature}`); }
-                    clearState(userIdRaw); return;
+            // --- معالجة أوامر الإدارة الفرعية ---
+            if (state.step === 'add_admin') {
+                const adminNumber = content.replace(/[^0-9]/g, '');
+                if (adminNumber.length < 10) {
+                    await sendReply(`⚠️ *رقم غير صحيح!*${signature}`);
+                    return;
+                }
+                admins.add(adminNumber + '@c.us');
+                await sendReply(`✅ *تم إضافة المبرمج بنجاح!* 🎉\nرقم: ${adminNumber}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_admin') {
+                const adminNumber = content.replace(/[^0-9]/g, '');
+                admins.delete(adminNumber + '@c.us');
+                await sendReply(`✅ *تم حذف المبرمج بنجاح!*${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_sections') {
+                if (content === '1') {
+                    state.step = 'add_section';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة شعبة جديدة*\n\nيرجى إرسال اسم الشعبة:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_section';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف شعبة*\n\nالشعب الحالية:\n`;
+                    Array.from(sections.entries()).forEach(([id, name], i) => {
+                        list += `${i + 1}. ${name}\n`;
+                    });
+                    await sendReply(list + `\n💡 أرسل رقم الشعبة المراد حذفها:${signature}`);
+                } else {
+                    // إضافة شعبة جديدة مباشرة
+                    const newId = Date.now().toString();
+                    sections.set(newId, content);
+                    saveSections();
+                    await sendReply(`✅ *تم إضافة الشعبة بنجاح!* 🎉\nالشعبة: ${content}${signature}`);
+                    clearState(userIdRaw);
+                }
+                return;
+            }
+
+            if (state.step === 'add_section') {
+                const newId = Date.now().toString();
+                sections.set(newId, content);
+                saveSections();
+                await sendReply(`✅ *تم إضافة الشعبة بنجاح!* 🎉\nالشعبة: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_section') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > sections.size) {
+                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
+                    return;
+                }
+                const sectionId = Array.from(sections.keys())[option - 1];
+                const sectionName = sections.get(sectionId);
+                sections.delete(sectionId);
+                saveSections();
+                await sendReply(`✅ *تم حذف الشعبة بنجاح!* 🗑️\nالشعبة: ${sectionName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_groups') {
+                if (content === '1') {
+                    state.step = 'add_group';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة فوج جديد*\n\nيرجى إرسال اسم الفوج:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_group';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف فوج*\n\nالأفواج الحالية:\n`;
+                    Array.from(groupsData.entries()).forEach(([id, name], i) => {
+                        list += `${i + 1}. ${name}\n`;
+                    });
+                    await sendReply(list + `\n💡 أرسل رقم الفوج المراد حذفه:${signature}`);
+                }
+                return;
+            }
+
+            if (state.step === 'add_group') {
+                const newId = Date.now().toString();
+                groupsData.set(newId, content);
+                saveGroups();
+                await sendReply(`✅ *تم إضافة الفوج بنجاح!* 🎉\nالفوج: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_group') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > groupsData.size) {
+                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
+                    return;
+                }
+                const groupId = Array.from(groupsData.keys())[option - 1];
+                const groupName = groupsData.get(groupId);
+                groupsData.delete(groupId);
+                saveGroups();
+                await sendReply(`✅ *تم حذف الفوج بنجاح!* 🗑️\nالفوج: ${groupName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_professors') {
+                if (content === '1') {
+                    state.step = 'add_professor';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة أستاذ جديد*\n\nيرجى إرسال اسم الأستاذ:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_professor';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف أستاذ*\n\nالأساتذة الحاليون:\n`;
+                    Array.from(professors.entries()).forEach(([id, name], i) => {
+                        list += `${i + 1}. ${name}\n`;
+                    });
+                    await sendReply(list + `\n💡 أرسل رقم الأستاذ المراد حذفه:${signature}`);
+                }
+                return;
+            }
+
+            if (state.step === 'add_professor') {
+                const newId = Date.now().toString();
+                professors.set(newId, content);
+                saveProfessors();
+                await sendReply(`✅ *تم إضافة الأستاذ بنجاح!* 🎉\nالأستاذ: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_professor') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > professors.size) {
+                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
+                    return;
+                }
+                const profId = Array.from(professors.keys())[option - 1];
+                const profName = professors.get(profId);
+                professors.delete(profId);
+                saveProfessors();
+                await sendReply(`✅ *تم حذف الأستاذ بنجاح!* 🗑️\nالأستاذ: ${profName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_subjects') {
+                if (content === '1') {
+                    state.step = 'add_subject';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة مادة جديدة*\n\nيرجى إرسال اسم المادة:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_subject';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف مادة*\n\nالمواد الحالية:\n`;
+                    Array.from(subjects.entries()).forEach(([id, name], i) => {
+                        list += `${i + 1}. ${name}\n`;
+                    });
+                    await sendReply(list + `\n💡 أرسل رقم المادة المراد حذفها:${signature}`);
+                }
+                return;
+            }
+
+            if (state.step === 'add_subject') {
+                const newId = Date.now().toString();
+                subjects.set(newId, content);
+                saveSubjects();
+                await sendReply(`✅ *تم إضافة المادة بنجاح!* 🎉\nالمادة: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_subject') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > subjects.size) {
+                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
+                    return;
+                }
+                const subjId = Array.from(subjects.keys())[option - 1];
+                const subjName = subjects.get(subjId);
+                subjects.delete(subjId);
+                saveSubjects();
+                await sendReply(`✅ *تم حذف المادة بنجاح!* 🗑️\nالمادة: ${subjName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'broadcast_all') {
+                // بث لجميع المجموعات
+                const chats = await client.getChats();
+                const groups = chats.filter(c => c.isGroup);
+                let sentCount = 0;
+                
+                for (const group of groups) {
+                    try {
+                        if (message.hasMedia) {
+                            const media = await message.downloadMedia();
+                            await client.sendMessage(group.id._serialized, media, { caption: content + signature });
+                        } else {
+                            await client.sendMessage(group.id._serialized, content + signature);
+                        }
+                        sentCount++;
+                    } catch (e) {
+                        console.error(`فشل الإرسال إلى ${group.name}:`, e.message);
+                    }
                 }
                 
-                if (option === 10) { await sendReply(`📚 *إدارة المحاضرات* 📚\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ تعديل محاضرة/امتحان\n3️⃣ حذف محاضرة/امتحان\n\n💡 _أرسل الرقم المطلوب:_${signature}`); updateState(userIdRaw, replyTo, { step: 'lectures_management_menu' }); return; }
-                if (option === 11) { await sendReply(`🏷️ *إدارة الشعب* 🏷️\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ إضافة شعبة جديدة\n3️⃣ تعديل شعبة\n4️⃣ حذف شعبة\n\n💡 _أرسل الرقم المطلوب:_${signature}`); updateState(userIdRaw, replyTo, { step: 'sections_management_menu' }); return; }
+                await sendReply(`✅ *تم البث بنجاح!* 📡\nتم الإرسال إلى ${sentCount} مجموعة.${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
 
-                if (option >= 12 && option <= 15) {
-                    const maps = { 12: 'classes', 13: 'groups', 14: 'professors', 15: 'subjects' };
-                    const titles = { 12: 'الفصول', 13: 'الأفواج', 14: 'الأساتذة', 15: 'المواد' };
-                    await sendReply(`📋 *إدارة ${titles[option]}*\n━━━━━━━━━━━━━━━━━━\n1️⃣ عرض الكل\n2️⃣ حذف عنصر\n\n💡 _أرسل الرقم المطلوب:_${signature}`);
-                    updateState(userIdRaw, replyTo, { step: `${maps[option]}_auto_management_menu` }); return;
+            if (state.step === 'broadcast_specific') {
+                const [groupIdStr, ...msgParts] = content.split('|');
+                const targetGroupId = groupIdStr.trim();
+                const msg = msgParts.join('|').trim();
+                
+                try {
+                    await client.sendMessage(targetGroupId, msg + signature);
+                    await sendReply(`✅ *تم إرسال الرسالة بنجاح!* 📤${signature}`);
+                } catch (e) {
+                    await sendReply(`❌ *فشل الإرسال!* تأكد من صحة معرف المجموعة.${signature}`);
                 }
-
-                if (option === 16) { await sendReply(`📢 *بث رسالة عامة*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن النص الذي ترغب في بثه لجميع المجموعات:${signature}`); updateState(userIdRaw, replyTo, { step: 'broadcast_message' }); return; }
-
-                if (option === 18) { await sendReply(`📚 *رفع كتاب الدليل*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *PDF* الخاص بكتاب دليل الاستخدام.\n(سيتم استبدال الملف القديم إذا كان موجوداً)${signature}`); updateState(userIdRaw, replyTo, { step: 'waiting_for_manual_pdf' }); return; }
-                if (option === 19) { await sendReply(`🎥 *رفع فيديو الشرح*\n━━━━━━━━━━━━━━━━━━\nأرسل الآن ملف الـ *Video (MP4)* الخاص بشرح الاستخدام.\n⚠️ ملاحظة: يُفضل أن لا يتجاوز حجم الفيديو 16 ميغابايت لتجنب مشاكل الإرسال في الواتساب.${signature}`); updateState(userIdRaw, replyTo, { step: 'waiting_for_manual_video' }); return; }
-
-                if ([1, 2, 3, 4, 7, 17].includes(option)) {
-                    let groupList = `📋 *اختر المجموعة المطلوبة:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1;
-                    const groupsArray = Array.from(groupsMetadata.entries());
-                    groupsArray.forEach(([id, name]) => { groupList += `${index++}. 📌 ${name}\n`; });
-                    groupList += `\n💡 _أرسل رقم المجموعة أو اكتب_ *إلغاء*`;
-                    await sendReply(groupList + signature);
-                    updateState(userIdRaw, replyTo, { step: `admin_option_${option}_select_group` }); return;
-                }
+                clearState(userIdRaw);
+                return;
             }
-
-            // --- تنفيذ الأوامر الإدارية (داخل المجموعات والمبرمجين) ---
-            if (state.step && state.step.startsWith('admin_option_')) {
-                const match = state.step.match(/admin_option_(\d+)_select_group/);
-                if (match) {
-                    const opt = parseInt(match[1]); const groupIndex = parseInt(content) - 1; const groupsArray = Array.from(groupsMetadata.entries());
-                    if (isNaN(groupIndex) || groupIndex < 0 || groupIndex >= groupsArray.length) { return await sendReply(`⚠️ *اختيار خاطئ للمجموعة!*${signature}`); }
-                    const selectedGroupId = groupsArray[groupIndex][0];
-
-                    if (opt === 7) { 
-                        await sendReply(`🧹 *جاري تنظيف المجموعة من الأعضاء المحظورين...*`); let kicked = 0;
-                        try {
-                            const chat = await client.getChatById(selectedGroupId);
-                            for (const participant of chat.participants) { if (blacklist.has(participant.id._serialized)) { await chat.removeParticipants([participant.id._serialized]); kicked++; } }
-                            await sendReply(`✅ *تم التنظيف!* طُرد ${kicked} عضو محظور.${signature}`);
-                        } catch (e) { await sendReply(`⚠️ *خطأ!* تأكد أن البوت مشرف.${signature}`); }
-                        clearState(userIdRaw); return;
-                    }
-                    if (opt === 17) { await sendReply(`📝 *أرسل الرسالة التي تود بثها في المجموعة المحددة:*${signature}`); updateState(userIdRaw, replyTo, { step: 'broadcast_to_selected_group', broadcastGroupId: selectedGroupId }); return; }
-
-                    const actions = { 1: 'إضافته', 2: 'حذفه', 3: 'ترقيته', 4: 'خفض رتبته' };
-                    await sendReply(`📞 *أرسل رقم العضو المراد ${actions[opt]}* (مثال: 212600000000):${signature}`);
-                    updateState(userIdRaw, replyTo, { step: `admin_execute_${opt}`, groupId: selectedGroupId }); return;
-                }
-            }
-
-            if (state.step && state.step.startsWith('admin_execute_')) {
-                const match = state.step.match(/admin_execute_(\d+)/);
-                if (match) {
-                    const opt = parseInt(match[1]); const targetNumber = content.replace(/\D/g, '') + '@c.us';
-                    try {
-                        const chat = await client.getChatById(state.groupId);
-                        if (opt === 1) await chat.addParticipants([targetNumber]);
-                        if (opt === 2) await chat.removeParticipants([targetNumber]);
-                        if (opt === 3) await chat.promoteParticipants([targetNumber]);
-                        if (opt === 4) await chat.demoteParticipants([targetNumber]);
-                        await sendReply(`✅ *تمت العملية بنجاح!* ✨${signature}`);
-                    } catch (err) { await sendReply(`⚠️ *حدث خطأ!* تأكد أن البوت مشرف والرقم صحيح.${signature}`); }
-                    clearState(userIdRaw); return;
-                }
-            }
-
-            if (state.step === 'add_dev_number') { admins.add(content.replace(/\D/g, '') + '@c.us'); await sendReply(`✅ *تم إضافة المبرمج بنجاح!* ✨${signature}`); clearState(userIdRaw); return; }
-            if (state.step === 'remove_dev_number') { admins.delete(content.replace(/\D/g, '') + '@c.us'); await sendReply(`✅ *تم إزالة المبرمج بنجاح!* ✨${signature}`); clearState(userIdRaw); return; }
-
-            if (state.step === 'broadcast_message') {
-                await sendReply(`⏳ *جاري الإرسال...*`); const chats = await client.getChats(); const groups = chats.filter(chat => chat.isGroup);
-                for (const group of groups) { await client.sendMessage(group.id._serialized, content + signature); }
-                await sendReply(`✅ *تم البث بنجاح إلى جميع المجموعات!* 🚀${signature}`); clearState(userIdRaw); return;
-            }
-            if (state.step === 'broadcast_to_selected_group') {
-                try { await client.sendMessage(state.broadcastGroupId, content + signature); await sendReply(`✅ *تم إرسال الرسالة!* ✨${signature}`); } 
-                catch (e) { await sendReply(`⚠️ *فشل الإرسال.*${signature}`); }
-                clearState(userIdRaw); return;
-            }
-
-            // إدارة المحاضرات والامتحانات (10)
-            if (state.step === 'lectures_management_menu') {
-                const opt = parseInt(content);
-                if (opt === 1) {
-                    const res = await db.query('SELECT * FROM lectures ORDER BY id ASC'); let list = `📋 *جميع الملفات:*\n━━━━━━━━━━━━━━━━━━\n`;
-                    if (res.rows.length === 0) list += `⚠️ لا توجد ملفات مضافة!\n`;
-                    res.rows.forEach((l, i) => { list += `${i + 1}. ${l.type} | ${l.subject_name} - ${l.lecture_number}\n`; });
-                    await sendReply(list + signature); clearState(userIdRaw); return;
-                }
-                if (opt === 2 || opt === 3) {
-                    const res = await db.query('SELECT * FROM lectures ORDER BY id ASC'); state.adminLectures = res.rows;
-                    let list = opt === 2 ? `✏️ *اختر ملف للتعديل:*\n━━━━━━━━━━━━━━━━━━\n` : `🗑️ *اختر ملف للحذف:*\n━━━━━━━━━━━━━━━━━━\n`;
-                    res.rows.forEach((l, i) => { list += `${i + 1}. ${l.type} | ${l.subject_name} - ${l.lecture_number}\n`; });
-                    await sendReply(list + `\n💡 _أرسل الرقم:_`); updateState(userIdRaw, replyTo, { step: opt === 2 ? 'edit_lecture_select' : 'delete_lecture_select', adminLectures: res.rows }); return;
-                }
-            }
-            if (state.step === 'edit_lecture_select') {
-                const idx = parseInt(content) - 1; if (isNaN(idx) || idx < 0 || idx >= state.adminLectures.length) return; const lecture = state.adminLectures[idx];
-                await sendReply(`✏️ *تعديل ${lecture.type}*\nأرسل المعلومات الجديدة:\n\nاسم المادة: \nرقم/دورة: \nالأستاذ: \nالفوج: \nالفصل: \nالشعبة: \n${signature}`);
-                updateState(userIdRaw, replyTo, { step: 'edit_lecture_data', dbId: lecture.id }); return;
-            }
-            if (state.step === 'edit_lecture_data') {
-                const lines = content.split('\n'); const info = {};
-                lines.forEach(l => {
-                    if (l.includes('اسم المادة')) info.subject = l.split(':')[1]?.trim(); 
-                    if (l.includes('رقم') || l.includes('دورة')) info.number = l.split(':')[1]?.trim();
-                    if (l.includes('الأستاذ')) info.professor = l.split(':')[1]?.trim(); 
-                    if (l.includes('الفوج')) info.group = l.split(':')[1]?.trim();
-                    if (l.includes('الفصل')) info.className = l.split(':')[1]?.trim(); 
-                    if (l.includes('الشعبة')) info.section = l.split(':')[1]?.trim();
-                });
-                try { await db.query(`UPDATE lectures SET subject_name=$1, lecture_number=$2, professor_name=$3, group_name=$4, class_name=$5, section_name=$6 WHERE id=$7`, [info.subject, info.number, info.professor, info.group, info.className, info.section, state.dbId]); await sendReply(`✅ *تم التعديل بنجاح!* ✨${signature}`); } 
-                catch (e) { await sendReply(`⚠️ خطأ!`); } clearState(userIdRaw); return;
-            }
-            if (state.step === 'delete_lecture_select') {
-                const idx = parseInt(content) - 1; if (isNaN(idx) || idx < 0 || idx >= state.adminLectures.length) return; const lecture = state.adminLectures[idx];
-                await sendReply(`🗑️ *متأكد من حذف ${lecture.subject_name} (${lecture.type})؟* (نعم/لا)${signature}`); updateState(userIdRaw, replyTo, { step: 'delete_lecture_confirm', dbId: lecture.id }); return;
-            }
-            if (state.step === 'delete_lecture_confirm') {
-                if (content.toLowerCase() === 'نعم') { try { await db.query(`DELETE FROM lectures WHERE id=$1`, [state.dbId]); await sendReply(`✅ *تم الحذف!* ✨${signature}`); } catch (e) { await sendReply(`⚠️ خطأ!`); } }
-                clearState(userIdRaw); return;
-            }
-
-            // إدارة الشعب (11)
-            if (state.step === 'sections_management_menu') {
-                const opt = parseInt(content);
-                if (opt === 1) { let list = `📋 *جميع الشعب:*\n━━━━━━━━━━━━━━━━━━\n`; sections.forEach((n, id) => { list += `- ${n}\n`; }); await sendReply(list + signature); clearState(userIdRaw); return; }
-                if (opt === 2) { await sendReply(`➕ *أرسل اسم الشعبة الجديدة:*${signature}`); updateState(userIdRaw, replyTo, { step: 'add_sections' }); return; }
-                if (opt === 3 || opt === 4) { let list = opt === 3 ? `✏️ *اختر الشعبة للتعديل:*\n` : `🗑️ *اختر الشعبة للحذف:*\n`; let index = 1; const arr = []; sections.forEach((n, id) => { list += `${index++}. ${n}\n`; arr.push(id); }); await sendReply(list + `\n💡 _أرسل الرقم:_`); updateState(userIdRaw, replyTo, { step: opt === 3 ? 'edit_sections_select' : 'delete_sections_select', items: arr }); return; }
-            }
-            if (state.step === 'add_sections') { sections.set(Date.now().toString(), content.trim()); saveSections(); await sendReply(`✅ *تم إضافة الشعبة!* ✨${signature}`); clearState(userIdRaw); return; }
-            if (state.step === 'edit_sections_select') { const id = state.items[parseInt(content) - 1]; if (!id) return; await sendReply(`✏️ *أرسل الاسم الجديد:*${signature}`); updateState(userIdRaw, replyTo, { step: 'edit_sections_data', editId: id }); return; }
-            if (state.step === 'edit_sections_data') { sections.set(state.editId, content.trim()); saveSections(); await sendReply(`✅ *تم التعديل!* ✨${signature}`); clearState(userIdRaw); return; }
-            if (state.step === 'delete_sections_select') {
-                const id = state.items[parseInt(content) - 1]; if (!id) return; 
-                await sendReply(`🗑️ *متأكد من الحذف؟* (نعم/لا)\n⚠️ *تنبيه:* سيتم حذف الشعبة وجميع المحاضرات المتعلقة بها نهائياً!${signature}`); 
-                updateState(userIdRaw, replyTo, { step: 'delete_sections_confirm', delId: id }); return; 
-            }
-            if (state.step === 'delete_sections_confirm') { 
-                if (content.toLowerCase() === 'نعم') { 
-                    const secName = sections.get(state.delId);
-                    if (secName) {
-                        const nameToDelete = secName.trim();
-                        for (const [k, v] of sections.entries()) { if (v.trim() === nameToDelete) sections.delete(k); }
-                        saveSections(); 
-                        try { 
-                            await db.query(`DELETE FROM lectures WHERE TRIM(section_name) = $1`, [nameToDelete]); 
-                            try { await db.query(`DELETE FROM sections WHERE TRIM(name) = $1`, [nameToDelete]); } catch(e){} 
-                        } catch(e) { } 
-                        await sendReply(`✅ *تم الحذف الجذري!* ✨\nتم إزالة الشعبة وكل الملفات المرتبطة بها نهائياً.`); 
-                    }
-                } 
-                clearState(userIdRaw); return; 
-            }
-
-            // الإدارة التلقائية (12-15)
-            const autoDataMenus = {
-                'classes': { map: classes, save: saveClasses, title: 'الفصول', dbCol: 'class_name', table: 'classes' },
-                'groups': { map: groupsData, save: saveGroups, title: 'الأفواج', dbCol: 'group_name', table: 'course_groups' },
-                'professors': { map: professors, save: saveProfessors, title: 'الأساتذة', dbCol: 'professor_name', table: 'professors' },
-                'subjects': { map: subjects, save: saveSubjects, title: 'المواد', dbCol: 'subject_name', table: 'subjects' }
-            };
-            for (const [key, data] of Object.entries(autoDataMenus)) {
-                if (state.step === `${key}_auto_management_menu`) {
-                    if (parseInt(content) === 1) { let list = `📋 *جميع ${data.title}:*\n━━━━━━━━━━━━━━━━━━\n`; data.map.forEach((n) => { list += `- ${n}\n`; }); await sendReply(list + signature); clearState(userIdRaw); return; }
-                    if (parseInt(content) === 2) { let list = `🗑️ *اختر للحذف:*\n━━━━━━━━━━━━━━━━━━\n`; let index = 1; const arr = []; data.map.forEach((n, id) => { list += `${index++}. ${n}\n`; arr.push({ id, n }); }); await sendReply(list + `\n💡 _أرسل الرقم:_`); updateState(userIdRaw, replyTo, { step: `delete_auto_${key}_select`, items: arr }); return; }
-                }
-                if (state.step === `delete_auto_${key}_select`) { 
-                    const item = state.items[parseInt(content) - 1]; if (!item) return; 
-                    await sendReply(`🗑️ *متأكد من حذف "${item.n}"؟* (نعم/لا)\n⚠️ *تنبيه هام:* سيتم حذفه من القوائم وتنظيف جميع الملفات المتعلقة به من قاعدة البيانات نهائياً!${signature}`); 
-                    updateState(userIdRaw, replyTo, { step: `delete_auto_${key}_confirm`, delId: item.id, delName: item.n }); return; 
-                }
-                if (state.step === `delete_auto_${key}_confirm`) { 
-                    if (content.toLowerCase() === 'نعم') { 
-                        const nameToDelete = state.delName.trim();
-                        for (const [k, v] of data.map.entries()) { if (v.trim() === nameToDelete) { data.map.delete(k); } }
-                        data.save(); 
-                        try { 
-                            await db.query(`DELETE FROM lectures WHERE TRIM(${data.dbCol}) = $1`, [nameToDelete]); 
-                            try { await db.query(`DELETE FROM ${data.table} WHERE TRIM(name) = $1`, [nameToDelete]); } catch(e) { } 
-                            await sendReply(`✅ *تم الحذف الجذري بنجاح!* ✨\nتم مسح العنصر وتنظيف قاعدة البيانات.`); 
-                        } catch(e) { 
-                            await sendReply(`⚠️ تم الحذف.`); 
-                        } 
-                    } 
-                    clearState(userIdRaw); return; 
-                }
-            }
-
         }
-    } catch (error) { console.error(error); }
+
+    } catch (error) {
+        console.error('خطأ عام:', error);
+    }
 });
 
+// تشغيل البوت
 client.initialize();
