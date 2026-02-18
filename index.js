@@ -50,7 +50,7 @@ let isBotReady = false;
 const PDF_ARCHIVE_GROUP = process.env.PDF_ARCHIVE_GROUP || '120363403563982270@g.us';
 const OWNER_ID = process.env.OWNER_ID || '212621957775@c.us'; 
 const SECOND_OWNER = '143731667767397@c.us'; 
-const EXAMS_ARCHIVE_GROUP = '120363425900214633@g.us';
+const EXAMS_ARCHIVE_GROUP = process.env.EXAMS_ARCHIVE_GROUP || '120363425900214633@g.us';
 // مسارات الملفات والمجلدات
 const blacklistFile = './blacklist.json';
 const sectionsFile = './sections.json';
