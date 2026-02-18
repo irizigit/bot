@@ -29,7 +29,7 @@ const client = new Client({
 // حالة البوت والبيانات
 // ============================================
 const userState = new Map();
-const userTimeouts = new Map(); // خريطة لتخزين المؤقتات الخاصة بكل مستخدم
+const userTimeouts = new Map();
 const groupsMetadata = new Map();
 const blacklist = new Set();
 const admins = new Set(['84564227018@c.us']);
@@ -48,7 +48,7 @@ let groupId = null;
 let isBotReady = false;
 
 const PDF_ARCHIVE_GROUP = process.env.PDF_ARCHIVE_GROUP || '120363403563982270@g.us';
-const EXAMS_ARCHIVE_GROUP = process.env.EXAMS_ARCHIVE_GROUP || '120363425900214633@g.us'; // أرشيف الامتحانات
+const EXAMS_ARCHIVE_GROUP = process.env.EXAMS_ARCHIVE_GROUP || 'ضع_الايدي_الجديد_هنا@g.us'; 
 const OWNER_ID = process.env.OWNER_ID || '212621957775@c.us'; 
 const SECOND_OWNER = '143731667767397@c.us'; 
 
@@ -89,7 +89,6 @@ function updateState(userId, replyTo, state) {
             userState.delete(userId);
             userTimeouts.delete(userId);
             try {
-                // إرسال رسالة انتهاء المهلة (كإشعار عام بدون ريبلاي)
                 await client.sendMessage(replyTo, `⏳ *انتهت المهلة!*\nلقد استغرقت أكثر من 4 دقائق دون رد. تم إلغاء العملية، يرجى إرسال الأمر من جديد للمتابعة.${signature}`);
             } catch (error) { console.error('فشل إرسال رسالة المهلة', error); }
         }
@@ -106,7 +105,7 @@ function clearState(userId) {
 }
 
 // ============================================
-// دوال المساعدة لاستخراج الأرقام (الحل الجذري)
+// دوال المساعدة لاستخراج الأرقام
 // ============================================
 function getCleanNumber(idData) {
     if (!idData) return '';
@@ -135,7 +134,7 @@ function saveSubjects() { try { const list = Array.from(subjects.entries()).map(
 loadBlacklist(); loadSections(); loadClasses(); loadGroups(); loadProfessors(); loadSubjects();
 
 // ============================================
-// دوال PDF
+// دوال PDF (محدثة لتكون مفصلة وأنيقة)
 // ============================================
 function checkFonts() {
     const fontsDir = path.join(__dirname, 'fonts');
@@ -152,27 +151,102 @@ async function generateLecturesTablePDF(lecturesData) {
             if (!checkFonts()) { reject(new Error('الخطوط المطلوبة غير موجودة.')); return; }
             const fonts = { Amiri: { normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'), bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf') } };
             const printer = new PdfPrinter(fonts);
-            const body = [
-                [ { text: 'التسلسل', bold: true }, { text: 'المادة', bold: true }, { text: 'رقم المحاضرة/الامتحان', bold: true }, { text: 'الأستاذ', bold: true }, { text: 'الفوج', bold: true }, { text: 'التاريخ', bold: true } ]
-            ];
-            
+
+            // الفلترة الذكية للأساتذة والمواد المحذوفة
             const activeProfs = Array.from(professors.values()).map(v => v.trim());
             const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
-            const validLectures = lecturesData.filter(l => activeProfs.includes((l.professor_name || '').trim()) && activeSubjects.includes((l.subject_name || '').trim()));
+            const validData = lecturesData.filter(l => activeProfs.includes((l.professor_name || '').trim()) && activeSubjects.includes((l.subject_name || '').trim()));
 
-            validLectures.forEach((lecture, index) => {
-                const date = lecture.date_added ? new Date(lecture.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
-                body.push([ (index + 1).toString(), lecture.subject_name || '', lecture.lecture_number || '', lecture.professor_name || '', lecture.group_name || '', date ]);
-            });
-            const docDefinition = {
-                defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 12, textDirection: 'rtl' },
-                content: [
-                    { text: 'جدول المحاضرات والامتحانات', style: 'header' },
-                    { table: { headerRows: 1, widths: ['auto', '*', 'auto', '*', 'auto', 'auto'], body }, layout: 'lightHorizontalLines' }
-                ],
-                styles: { header: { fontSize: 18, bold: true, alignment: 'center', margin: [0, 0, 0, 10] } },
-                pageOrientation: 'landscape', pageSize: 'A4'
+            // تقسيم البيانات
+            const lectures = validData.filter(item => item.type === 'محاضرة');
+            const summaries = validData.filter(item => item.type === 'ملخص');
+            const exams = validData.filter(item => item.type === 'امتحان');
+
+            // دالة مساعدة لتوليد الجداول
+            const createTableSection = (title, data, type) => {
+                const tableBody = [];
+                
+                // إعداد الترويسات حسب النوع
+                if (type === 'امتحان') {
+                    tableBody.push([
+                        { text: 'التسلسل', style: 'tableHeader' },
+                        { text: 'المادة', style: 'tableHeader' },
+                        { text: 'الفصل', style: 'tableHeader' },
+                        { text: 'السنة/الدورة', style: 'tableHeader' },
+                        { text: 'الأستاذ', style: 'tableHeader' },
+                        { text: 'التاريخ', style: 'tableHeader' }
+                    ]);
+                    data.forEach((item, index) => {
+                        const date = item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
+                        tableBody.push([ (index + 1).toString(), item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', date ]);
+                    });
+                } else {
+                    tableBody.push([
+                        { text: 'التسلسل', style: 'tableHeader' },
+                        { text: 'المادة', style: 'tableHeader' },
+                        { text: 'الفصل', style: 'tableHeader' },
+                        { text: 'الرقم', style: 'tableHeader' },
+                        { text: 'الأستاذ', style: 'tableHeader' },
+                        { text: 'الفوج', style: 'tableHeader' },
+                        { text: 'التاريخ', style: 'tableHeader' }
+                    ]);
+                    data.forEach((item, index) => {
+                        const date = item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
+                        tableBody.push([ (index + 1).toString(), item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', item.group_name || '', date ]);
+                    });
+                }
+
+                const section = [
+                    { text: title, style: 'sectionTitle' }
+                ];
+
+                if (data.length > 0) {
+                    section.push({
+                        table: {
+                            headerRows: 1,
+                            widths: type === 'امتحان' ? ['auto', '*', 'auto', 'auto', '*', 'auto'] : ['auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
+                            body: tableBody
+                        },
+                        layout: {
+                            fillColor: function (rowIndex, node, columnIndex) {
+                                return (rowIndex === 0) ? '#2C3E50' : (rowIndex % 2 === 0 ? '#ECF0F1' : null);
+                            },
+                            hLineWidth: function (i, node) { return 1; },
+                            vLineWidth: function (i, node) { return 1; },
+                            hLineColor: function (i, node) { return '#BDC3C7'; },
+                            vLineColor: function (i, node) { return '#BDC3C7'; }
+                        },
+                        margin: [0, 0, 0, 25]
+                    });
+                } else {
+                    section.push({ text: 'لا توجد بيانات مضافة في هذا القسم حالياً.', style: 'noData', margin: [0, 0, 0, 25] });
+                }
+
+                return section;
             };
+
+            const docDefinition = {
+                defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 11, textDirection: 'rtl' },
+                content: [
+                    { text: '📊 الأرشيف الأكاديمي الشامل', style: 'mainTitle' },
+                    { text: `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`, style: 'subTitle' },
+                    { canvas: [{ type: 'line', x1: 0, y1: 5, x2: 770, y2: 5, lineWidth: 2, lineColor: '#2980B9' }], margin: [0, 0, 0, 20] },
+                    
+                    ...createTableSection('📚 جدول المحاضرات', lectures, 'محاضرة'),
+                    ...createTableSection('📝 جدول الملخصات', summaries, 'ملخص'),
+                    ...createTableSection('📸 جدول الامتحانات', exams, 'امتحان')
+                ],
+                styles: {
+                    mainTitle: { fontSize: 24, bold: true, alignment: 'center', color: '#2C3E50', margin: [0, 0, 0, 5] },
+                    subTitle: { fontSize: 12, alignment: 'center', color: '#7F8C8D', margin: [0, 0, 0, 10] },
+                    sectionTitle: { fontSize: 18, bold: true, color: '#2980B9', margin: [0, 10, 0, 10], decoration: 'underline' },
+                    tableHeader: { bold: true, fontSize: 12, color: 'white', alignment: 'center', margin: [0, 4, 0, 4] },
+                    noData: { fontSize: 12, italic: true, color: '#95A5A6', alignment: 'center' }
+                },
+                pageOrientation: 'landscape', 
+                pageSize: 'A4'
+            };
+            
             const pdfDoc = printer.createPdfKitDocument(docDefinition);
             const chunks = [];
             pdfDoc.on('data', chunk => chunks.push(chunk));
@@ -212,11 +286,8 @@ client.on('message_create', async message => {
         const replyTo = isGroupMessage ? currentGroupId : userIdRaw;
         
         const content = message.body && typeof message.body === 'string' ? message.body.trim() : '';
-        
-        // --- إصلاح الخلل الجذري: السماح للرسائل التي تحتوي على وسائط بالمرور ---
         if (!content && !message.hasMedia) return;
 
-        // --- جلب اسم مرسل الرسالة ---
         const contact = await message.getContact();
         const senderName = contact.pushname || contact.name || "طالب";
 
@@ -224,21 +295,50 @@ client.on('message_create', async message => {
         const botNumber = getCleanNumber(client.info.wid);
         const isOwner = (authorNumber === getCleanNumber(OWNER_ID) || authorNumber === getCleanNumber(SECOND_OWNER));
 
-        // ========================================================
-        // دالة الرد المباشر (Reply) الجديدة
-        // ========================================================
+        // دالة الرد المباشر (Reply)
         const sendReply = async (msgContent, options = {}) => {
             try {
                 return await client.sendMessage(replyTo, msgContent, { ...options, quotedMessageId: message.id._serialized });
             } catch (e) {
-                // في حال فشل الرد المباشر لأي سبب، يتم إرسال الرسالة بشكل عادي
                 return await client.sendMessage(replyTo, msgContent, options);
             }
         };
 
-        // ========================================================
-        // أوامر القفل والفتح
-        // ========================================================
+        // --- أمر الطرد من المجموعة (Kick) ---
+        if (isGroupMessage && (content === '!طرد' || content === '!kick')) {
+            const chat = await message.getChat();
+            let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
+            let isBotGroupAdmin = false;
+
+            for (let participant of chat.participants) {
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    const pNum = getCleanNumber(participant.id);
+                    if (pNum === authorNumber) isSenderAdmin = true;
+                    if (pNum === botNumber) isBotGroupAdmin = true;
+                }
+            }
+
+            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
+
+            if (!message.hasQuotedMsg) { return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`); }
+
+            try {
+                const quotedMsg = await message.getQuotedMessage();
+                const targetId = quotedMsg.author || quotedMsg.from;
+                const cleanTargetId = getCleanNumber(targetId);
+                
+                if (cleanTargetId === botNumber || cleanTargetId === getCleanNumber(OWNER_ID) || cleanTargetId === getCleanNumber(SECOND_OWNER)) {
+                    return await sendReply(`❌ *عذراً، لا يمكنني طرد هذا الرقم!* 🛡️${signature}`);
+                }
+
+                await chat.removeParticipants([targetId]);
+                await sendReply(`✅ *تم طرد العضو بنجاح!* 🧹${signature}`);
+            } catch(e) { await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); }
+            return;
+        }
+
+        // --- أوامر القفل والفتح ---
         if (content === '!قفل' || content === '!lock' || content === '!فتح' || content === '!unlock') {
             if (!isGroupMessage) return;
             const chat = await message.getChat();
@@ -262,7 +362,6 @@ client.on('message_create', async message => {
                 const action = (content === '!قفل' || content === '!lock');
                 await chat.setMessagesAdminsOnly(action);
                 
-                // الإعلان العام في المجموعة بدون Quote
                 if (action) { await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`); } 
                 else { await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`); }
             } catch (error) { await sendReply(`❌ *حدث خطأ أثناء التنفيذ!* تحقق من الكونسول للمزيد من التفاصيل.${signature}`); }
@@ -312,48 +411,7 @@ client.on('message_create', async message => {
             } catch(e) { await sendReply(`❌ *حدث خطأ أثناء التثبيت.*${signature}`); }
             return;
         }
-// --- أمر الطرد من المجموعة (Kick) ---
-        if (isGroupMessage && (content === '!طرد' || content === '!kick')) {
-            const chat = await message.getChat();
-            let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
-            let isBotGroupAdmin = false;
 
-            // التحقق من الصلاحيات
-            for (let participant of chat.participants) {
-                if (participant.isAdmin || participant.isSuperAdmin) {
-                    const pNum = getCleanNumber(participant.id);
-                    if (pNum === authorNumber) isSenderAdmin = true;
-                    if (pNum === botNumber) isBotGroupAdmin = true;
-                }
-            }
-
-            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
-
-            // التأكد من أن المشرف قام بالرد على رسالة العضو المراد طرده
-            if (!message.hasQuotedMsg) {
-                return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`);
-            }
-
-            try {
-                const quotedMsg = await message.getQuotedMessage();
-                const targetId = quotedMsg.author || quotedMsg.from;
-                const cleanTargetId = getCleanNumber(targetId);
-                
-                // حماية: منع طرد البوت نفسه أو المدراء
-                if (cleanTargetId === botNumber || cleanTargetId === getCleanNumber(OWNER_ID) || cleanTargetId === getCleanNumber(SECOND_OWNER)) {
-                    return await sendReply(`❌ *عذراً، لا يمكنني طرد هذا الرقم!* 🛡️${signature}`);
-                }
-
-                // تنفيذ الطرد
-                await chat.removeParticipants([targetId]);
-                await sendReply(`✅ *تم طرد العضو بنجاح!* 🧹${signature}`);
-            } catch(e) { 
-                console.error('خطأ في الطرد:', e);
-                await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); 
-            }
-            return;
-        }
         // --- أمر دليل الاستخدام ---
         if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
             if (!isGroupMessage) return; 
@@ -381,11 +439,11 @@ client.on('message_create', async message => {
         // --- أمر جدول المحاضرات ---
         if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
             try {
-                const res = await db.query('SELECT subject_name, lecture_number, professor_name, group_name, date_added FROM lectures ORDER BY id ASC');
-                if (res.rows.length === 0) { await sendReply(`⚠️ *عذراً!* لا توجد محاضرات مضافة حتى الآن.${signature}`); return; }
+                const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
+                if (res.rows.length === 0) { await sendReply(`⚠️ *عذراً!* لا توجد بيانات مضافة حتى الآن.${signature}`); return; }
                 const pdfBuffer = await generateLecturesTablePDF(res.rows);
                 const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`);
-                await sendReply(media, { caption: `📊 *إليك جدول المحاضرات محدثاً* ✨${signature}` });
+                await sendReply(media, { caption: `📊 *إليك جدول الأرشيف الشامل محدثاً* ✨${signature}` });
             } catch (error) { await sendReply(`❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); }
             return;
         }
@@ -495,7 +553,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- اختيار الشعبة ثم عرض الفصول الثابتة (للملفات) ---
             if (state.step === 'select_section') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > sections.size) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم الشعبة الصحيح.${signature}`); return; }
@@ -510,7 +567,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- اختيار الشعبة ثم عرض الفصول الثابتة (للامتحانات) ---
             if (state.step === 'select_section_for_exam') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > sections.size) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم الشعبة الصحيح.${signature}`); return; }
@@ -525,7 +581,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- معالجة اختيار الفصل وعرض الاستمارة ---
             if (state.step === 'select_class_for_add' || state.step === 'select_class_for_exam_add') {
                 const option = parseInt(content);
                 if (isNaN(option) || option < 1 || option > 6) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم من 1 إلى 6.${signature}`); return; }
@@ -544,7 +599,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- قراءة استمارة الملفات ---
             if (state.step === 'waiting_form') {
                 const lines = content.split('\n'); const info = {};
                 lines.forEach(line => {
@@ -574,7 +628,8 @@ client.on('message_create', async message => {
                             await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), media.filename || `${state.pdfType}.pdf`]);
 
                             let newItemsAdded = [];
-                            
+                            const className = state.className.trim();
+                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
                             const groupName = state.formData.group.trim();
                             if (groupName && !Array.from(groupsData.values()).includes(groupName)) { groupsData.set(Date.now().toString() + '_g', groupName); saveGroups(); newItemsAdded.push(`👥 فوج: ${groupName}`); }
                             const professorName = state.formData.professor.trim();
@@ -595,7 +650,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- قراءة استمارة الامتحانات ---
             if (state.step === 'waiting_exam_form') {
                 const lines = content.split('\n'); const info = {};
                 lines.forEach(line => {
@@ -631,7 +685,8 @@ client.on('message_create', async message => {
                             await db.query(query, ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), fileName]);
 
                             let newItemsAdded = [];
-                            
+                            const className = state.className.trim();
+                            if (className && !Array.from(classes.values()).includes(className)) { classes.set(Date.now().toString(), className); saveClasses(); newItemsAdded.push(`🏫 فصل: ${className}`); }
                             const professorName = state.formData.professor.trim();
                             if (professorName && !Array.from(professors.values()).includes(professorName)) { professors.set(Date.now().toString() + '_p', professorName); saveProfessors(); newItemsAdded.push(`👨‍🏫 أستاذ: ${professorName}`); }
                             const subjectName = state.formData.subject.trim();
@@ -657,7 +712,7 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- عمليات تحميل (محاضرة/ملخص/امتحان) للطلاب مع الفلتر الذكي ---
+            // --- عمليات تحميل (محاضرة/ملخص/امتحان) للطلاب ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2 && option !== 3) return await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
@@ -745,7 +800,7 @@ client.on('message_create', async message => {
                 if (option === 8) { await sendReply(`📌 *لتثبيت رسالة:*\nفي المجموعة، اعمل "رد/Reply" للرسالة المطلوبة واكتب الأمر:\n*!تثبيت*${signature}`); clearState(userIdRaw); return; }
 
                 if (option === 9) {
-                    const res = await db.query('SELECT subject_name, lecture_number, professor_name, group_name, date_added FROM lectures ORDER BY id ASC');
+                    const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
                     if (res.rows.length > 0) { const pdfBuffer = await generateLecturesTablePDF(res.rows); const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`); await sendReply(media, { caption: `📊 *جدول المحاضرات والامتحانات*${signature}` }); } 
                     else { await sendReply(`⚠️ *لا توجد بيانات مضافة بعد!*${signature}`); }
                     clearState(userIdRaw); return;
