@@ -208,42 +208,6 @@ client.on('message_create', async message => {
             }
             return;
         }
-// --- أمر قفل وفتح المجموعة ---
-        if (content === '!قفل' || content === '!lock') {
-            if (!isGroupMessage) return;
-            if (await isAdmin(userId, currentGroupId)) {
-                if (await isBotAdmin(currentGroupId)) {
-                    try {
-                        const chat = await message.getChat();
-                        await chat.setMessagesAdminsOnly(true);
-                        await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
-                    } catch (error) {
-                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.*${signature}`);
-                    }
-                } else {
-                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من إغلاق المجموعة.${signature}`);
-                }
-            }
-            return;
-        }
-
-        if (content === '!فتح' || content === '!unlock') {
-            if (!isGroupMessage) return;
-            if (await isAdmin(userId, currentGroupId)) {
-                if (await isBotAdmin(currentGroupId)) {
-                    try {
-                        const chat = await message.getChat();
-                        await chat.setMessagesAdminsOnly(false);
-                        await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
-                    } catch (error) {
-                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.*${signature}`);
-                    }
-                } else {
-                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من فتح المجموعة.${signature}`);
-                }
-            }
-            return;
-        }
         
 // --- أمر رابط المجموعة ---
         if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
@@ -264,6 +228,51 @@ client.on('message_create', async message => {
                 }
             } else {
                 await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) في المجموعة أولاً لأتمكن من استخراج الرابط.${signature}`);
+            }
+            return;
+        }
+        // --- أمر قفل المجموعة ---
+        if (content === '!قفل' || content === '!lock') {
+            if (!isGroupMessage) return;
+            if (await isAdmin(userId, currentGroupId)) {
+                if (await isBotAdmin(currentGroupId)) {
+                    try {
+                        await client.sendMessage(replyTo, `⏳ *جاري تنفيذ الأمر...*${signature}`);
+                        const chat = await message.getChat();
+                        await chat.setMessagesAdminsOnly(true);
+                        await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
+                    } catch (error) {
+                        console.error(error);
+                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.* (قد تحتاج لتحديث المكتبة من السيرفر)${signature}`);
+                    }
+                } else {
+                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من إغلاق المجموعة.${signature}`);
+                }
+            } else {
+                await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
+            }
+            return;
+        }
+
+        // --- أمر فتح المجموعة ---
+        if (content === '!فتح' || content === '!unlock') {
+            if (!isGroupMessage) return;
+            if (await isAdmin(userId, currentGroupId)) {
+                if (await isBotAdmin(currentGroupId)) {
+                    try {
+                        await client.sendMessage(replyTo, `⏳ *جاري تنفيذ الأمر...*${signature}`);
+                        const chat = await message.getChat();
+                        await chat.setMessagesAdminsOnly(false);
+                        await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
+                    } catch (error) {
+                        console.error(error);
+                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.* (قد تحتاج لتحديث المكتبة من السيرفر)${signature}`);
+                    }
+                } else {
+                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من فتح المجموعة.${signature}`);
+                }
+            } else {
+                await client.sendMessage(replyTo, `⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`);
             }
             return;
         }
