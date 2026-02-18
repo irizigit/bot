@@ -166,10 +166,11 @@ async function generateLecturesTablePDF(lecturesData) {
             const createTableSection = (title, data, type) => {
                 const tableBody = [];
                 
-                // إعداد الترويسات حسب النوع
+                // إعداد الترويسات حسب النوع (مع إضافة الشعبة)
                 if (type === 'امتحان') {
                     tableBody.push([
                         { text: 'التسلسل', style: 'tableHeader' },
+                        { text: 'الشعبة', style: 'tableHeader' },
                         { text: 'المادة', style: 'tableHeader' },
                         { text: 'الفصل', style: 'tableHeader' },
                         { text: 'السنة/الدورة', style: 'tableHeader' },
@@ -178,11 +179,12 @@ async function generateLecturesTablePDF(lecturesData) {
                     ]);
                     data.forEach((item, index) => {
                         const date = item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
-                        tableBody.push([ (index + 1).toString(), item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', date ]);
+                        tableBody.push([ (index + 1).toString(), item.section_name || '', item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', date ]);
                     });
                 } else {
                     tableBody.push([
                         { text: 'التسلسل', style: 'tableHeader' },
+                        { text: 'الشعبة', style: 'tableHeader' },
                         { text: 'المادة', style: 'tableHeader' },
                         { text: 'الفصل', style: 'tableHeader' },
                         { text: 'الرقم', style: 'tableHeader' },
@@ -192,7 +194,7 @@ async function generateLecturesTablePDF(lecturesData) {
                     ]);
                     data.forEach((item, index) => {
                         const date = item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
-                        tableBody.push([ (index + 1).toString(), item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', item.group_name || '', date ]);
+                        tableBody.push([ (index + 1).toString(), item.section_name || '', item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', item.group_name || '', date ]);
                     });
                 }
 
@@ -204,7 +206,8 @@ async function generateLecturesTablePDF(lecturesData) {
                     section.push({
                         table: {
                             headerRows: 1,
-                            widths: type === 'امتحان' ? ['auto', '*', 'auto', 'auto', '*', 'auto'] : ['auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
+                            // تعديل مساحات الأعمدة لتستوعب عمود "الشعبة" الجديد
+                            widths: type === 'امتحان' ? ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto'] : ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
                             body: tableBody
                         },
                         layout: {
@@ -228,13 +231,14 @@ async function generateLecturesTablePDF(lecturesData) {
             const docDefinition = {
                 defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 11, textDirection: 'rtl' },
                 content: [
-                    { text: '📊 الأرشيف الأكاديمي الشامل', style: 'mainTitle' },
+                    // تم إزالة الإيموجيات من العناوين لأنها تسبب مشكلة انعكاس الكلمات (RTL Bug)
+                    { text: 'الأرشيف الأكاديمي الشامل', style: 'mainTitle' },
                     { text: `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`, style: 'subTitle' },
                     { canvas: [{ type: 'line', x1: 0, y1: 5, x2: 770, y2: 5, lineWidth: 2, lineColor: '#2980B9' }], margin: [0, 0, 0, 20] },
                     
-                    ...createTableSection('📚 جدول المحاضرات', lectures, 'محاضرة'),
-                    ...createTableSection('📝 جدول الملخصات', summaries, 'ملخص'),
-                    ...createTableSection('📸 جدول الامتحانات', exams, 'امتحان')
+                    ...createTableSection('جدول المحاضرات', lectures, 'محاضرة'),
+                    ...createTableSection('جدول الملخصات', summaries, 'ملخص'),
+                    ...createTableSection('جدول الامتحانات', exams, 'امتحان')
                 ],
                 styles: {
                     mainTitle: { fontSize: 24, bold: true, alignment: 'center', color: '#2C3E50', margin: [0, 0, 0, 5] },
@@ -255,9 +259,7 @@ async function generateLecturesTablePDF(lecturesData) {
             pdfDoc.end();
         } catch (error) { reject(error); }
     });
-}
-
-// ============================================
+}// ============================================
 // أحداث العميل
 // ============================================
 client.on('qr', qr => { qrcode.generate(qr, { small: true }); });
