@@ -208,6 +208,40 @@ client.on('message_create', async message => {
             }
             return;
         }
+// --- أمر رابط المجموعة ---
+        if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
+            if (!isGroupMessage) {
+                await client.sendMessage(replyTo, `⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
+                return;
+            }
+            
+            // التحقق مما إذا كان البوت مشرفاً (Admin) ليتمكن من سحب الرابط
+            if (await isBotAdmin(currentGroupId)) {
+                try {
+                    const chat = await message.getChat();
+                    const inviteCode = await chat.getInviteCode();
+                    const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
+                    await client.sendMessage(replyTo, `🔗 *رابط الانضمام للمجموعة:*\n\n${inviteLink}${signature}`);
+                } catch (error) {
+                    await client.sendMessage(replyTo, `❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة في إعدادات المجموعة.${signature}`);
+                }
+            } else {
+                await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) في المجموعة أولاً لأتمكن من استخراج الرابط.${signature}`);
+            }
+            return;
+        }
+         if (!isGroupMessage && userId === OWNER_ID && content === '!تحديث') {
+            await message.react('🔄');
+            await client.sendMessage(userId, `🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.`);
+            exec('git pull origin main && pm2 restart all', async (error, stdout, stderr) => {
+                if (error) {
+                    console.error(`[❌] فشل التحديث: ${error.message}`);
+                    await client.sendMessage(userId, `⚠️ حدث خطأ أثناء التحديث:\n${error.message}\n${signature}`);
+                    return;
+                }
+            });
+            return;
+        }
 
         // --- أمر تثبيت الرسالة ---
         if (isGroupMessage && content === '!تثبيت' && message.hasQuotedMsg) {
