@@ -312,7 +312,48 @@ client.on('message_create', async message => {
             } catch(e) { await sendReply(`❌ *حدث خطأ أثناء التثبيت.*${signature}`); }
             return;
         }
+// --- أمر الطرد من المجموعة (Kick) ---
+        if (isGroupMessage && (content === '!طرد' || content === '!kick')) {
+            const chat = await message.getChat();
+            let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
+            let isBotGroupAdmin = false;
 
+            // التحقق من الصلاحيات
+            for (let participant of chat.participants) {
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    const pNum = getCleanNumber(participant.id);
+                    if (pNum === authorNumber) isSenderAdmin = true;
+                    if (pNum === botNumber) isBotGroupAdmin = true;
+                }
+            }
+
+            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
+
+            // التأكد من أن المشرف قام بالرد على رسالة العضو المراد طرده
+            if (!message.hasQuotedMsg) {
+                return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`);
+            }
+
+            try {
+                const quotedMsg = await message.getQuotedMessage();
+                const targetId = quotedMsg.author || quotedMsg.from;
+                const cleanTargetId = getCleanNumber(targetId);
+                
+                // حماية: منع طرد البوت نفسه أو المدراء
+                if (cleanTargetId === botNumber || cleanTargetId === getCleanNumber(OWNER_ID) || cleanTargetId === getCleanNumber(SECOND_OWNER)) {
+                    return await sendReply(`❌ *عذراً، لا يمكنني طرد هذا الرقم!* 🛡️${signature}`);
+                }
+
+                // تنفيذ الطرد
+                await chat.removeParticipants([targetId]);
+                await sendReply(`✅ *تم طرد العضو بنجاح!* 🧹${signature}`);
+            } catch(e) { 
+                console.error('خطأ في الطرد:', e);
+                await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); 
+            }
+            return;
+        }
         // --- أمر دليل الاستخدام ---
         if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
             if (!isGroupMessage) return; 
