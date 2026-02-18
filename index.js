@@ -512,17 +512,24 @@ client.on('message_create', async message => {
             }
 
             if (state.step === 'waiting_exam_image') {
-                if (message.hasMedia && message.type === 'image') {
-                    const media = await message.downloadMedia();
-                    if (media.mimetype.startsWith('image/')) {
-                        await message.react('⏳');
-                        const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n🗓️ السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.formData.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
+                if (message.hasMedia) {
+                    await message.react('⏳');
+                    try {
+                        const media = await message.downloadMedia();
+                        
+                        // التحقق من أن الملف المرفق هو صورة (سواء أُرسل كصورة أو كمستند)
+                        if (media && media.mimetype && media.mimetype.startsWith('image/')) {
+                            
+                            const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n🗓️ السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.formData.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
-                        try {
                             const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
+                            
+                            // تحديد اسم افتراضي للصورة إذا لم يكن لها اسم
+                            const fileName = media.filename || `exam_${Date.now()}.${media.mimetype.split('/')[1]}`;
+
                             const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`;
-                            await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.formData.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), media.filename || `exam_${Date.now()}.jpg`]);
+                            await db.query(query, [state.pdfType, state.sectionId, state.sectionName, state.formData.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, userIdRaw, new Date().toISOString(), fileName]);
 
                             let newItemsAdded = [];
                             const className = state.formData.className.trim();
@@ -535,13 +542,20 @@ client.on('message_create', async message => {
                             let successMsg = `✅ *تم حفظ الامتحان بنجاح!* ✨\nتم تأمين الصورة في قاعدة البيانات.`;
                             if (newItemsAdded.length > 0) successMsg += `\n\n🆕 *تم إضافة عناصر جديدة تلقائياً:*\n${newItemsAdded.join('\n')}`;
                             await client.sendMessage(replyTo, successMsg + signature);
-                            clearState(userIdRaw); await message.react('✅');
-                        } catch (err) {
-                            await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء الحفظ في القاعدة!* تم الرفع للأرشيف فقط.${signature}`);
-                            clearState(userIdRaw);
+                            clearState(userIdRaw); 
+                            await message.react('✅');
+                            
+                        } else { 
+                            await client.sendMessage(replyTo, `⚠️ *عذراً!* الملف الذي أرسلته ليس صورة. نوع الملف المكتشف هو: (${media ? media.mimetype : 'غير معروف'}).\nيرجى إرسال صورة بصيغة JPG أو PNG.${signature}`); 
                         }
-                    } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال صورة فقط (Image)!*${signature}`); }
-                } else { await client.sendMessage(replyTo, `⚠️ *يرجى إرسال صورة الامتحان!*${signature}`); }
+                    } catch (err) {
+                        console.error('خطأ في تحميل الصورة:', err);
+                        await client.sendMessage(replyTo, `⚠️ *حدث خطأ أثناء تحميل الصورة من سيرفرات واتساب!* يرجى المحاولة مرة أخرى.${signature}`);
+                        clearState(userIdRaw);
+                    }
+                } else { 
+                    await client.sendMessage(replyTo, `⚠️ *لم يتم اكتشاف أي مرفقات!* يرجى إرسال *صورة الامتحان* مع رسالتك.${signature}`); 
+                }
                 return;
             }
             // --- عمليات تحميل PDF (الطلاب) مع الفلتر الذكي ---
