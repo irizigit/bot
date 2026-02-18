@@ -546,7 +546,7 @@ client.on('message_create', async message => {
                             
                             const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n🗓️ السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.formData.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
-                            const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
+                            const archiveMsg = await client.sendMessage(EXAMS_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
                             console.log(`- ✅ تم الإرسال. ID: ${messageId}`);
                             
