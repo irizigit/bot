@@ -145,17 +145,30 @@ function checkFonts() {
     return true;
 }
 
+
 async function generateLecturesTablePDF(lecturesData) {
     return new Promise((resolve, reject) => {
         try {
-            if (!checkFonts()) { reject(new Error('الخطوط المطلوبة غير موجودة.')); return; }
-            const fonts = { Amiri: { normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'), bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf') } };
+            if (!checkFonts()) { 
+                reject(new Error('الخطوط المطلوبة غير موجودة.')); 
+                return; 
+            }
+            
+            const fonts = { 
+                Amiri: { 
+                    normal: path.join(__dirname, 'fonts/Amiri-Regular.ttf'), 
+                    bold: path.join(__dirname, 'fonts/Amiri-Bold.ttf') 
+                } 
+            };
             const printer = new PdfPrinter(fonts);
 
             // الفلترة الذكية للأساتذة والمواد المحذوفة
             const activeProfs = Array.from(professors.values()).map(v => v.trim());
             const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
-            const validData = lecturesData.filter(l => activeProfs.includes((l.professor_name || '').trim()) && activeSubjects.includes((l.subject_name || '').trim()));
+            const validData = lecturesData.filter(l => 
+                activeProfs.includes((l.professor_name || '').trim()) && 
+                activeSubjects.includes((l.subject_name || '').trim())
+            );
 
             // تقسيم البيانات
             const lectures = validData.filter(item => item.type === 'محاضرة');
@@ -166,35 +179,56 @@ async function generateLecturesTablePDF(lecturesData) {
             const createTableSection = (title, data, type) => {
                 const tableBody = [];
                 
-                // إعداد الترويسات حسب النوع (مع إضافة الشعبة)
+                // ✅ إعداد الترويسات بترتيب صحيح للـ RTL (من اليمين لليسار)
                 if (type === 'امتحان') {
                     tableBody.push([
-                        { text: 'التسلسل', style: 'tableHeader' },
-                        { text: 'الشعبة', style: 'tableHeader' },
-                        { text: 'المادة', style: 'tableHeader' },
-                        { text: 'الفصل', style: 'tableHeader' },
-                        { text: 'السنة/الدورة', style: 'tableHeader' },
+                        { text: 'التاريخ', style: 'tableHeader' },
                         { text: 'الأستاذ', style: 'tableHeader' },
-                        { text: 'التاريخ', style: 'tableHeader' }
+                        { text: 'السنة / الدورة', style: 'tableHeader' },
+                        { text: 'الفصل', style: 'tableHeader' },
+                        { text: 'المادة', style: 'tableHeader' },
+                        { text: 'الشعبة', style: 'tableHeader' },
+                        { text: 'التسلسل', style: 'tableHeader' }
                     ]);
                     data.forEach((item, index) => {
-                        const date = item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
-                        tableBody.push([ (index + 1).toString(), item.section_name || '', item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', date ]);
+                        const date = item.date_added 
+                            ? new Date(item.date_added).toLocaleDateString('ar-EG') 
+                            : 'غير محدد';
+                        tableBody.push([
+                            date,
+                            item.professor_name || '',
+                            item.lecture_number || '',
+                            item.class_name || '',
+                            item.subject_name || '',
+                            item.section_name || '',
+                            (index + 1).toString()
+                        ]);
                     });
                 } else {
                     tableBody.push([
-                        { text: 'التسلسل', style: 'tableHeader' },
-                        { text: 'الشعبة', style: 'tableHeader' },
-                        { text: 'المادة', style: 'tableHeader' },
-                        { text: 'الفصل', style: 'tableHeader' },
-                        { text: 'الرقم', style: 'tableHeader' },
-                        { text: 'الأستاذ', style: 'tableHeader' },
+                        { text: 'التاريخ', style: 'tableHeader' },
                         { text: 'الفوج', style: 'tableHeader' },
-                        { text: 'التاريخ', style: 'tableHeader' }
+                        { text: 'الأستاذ', style: 'tableHeader' },
+                        { text: 'الرقم', style: 'tableHeader' },
+                        { text: 'الفصل', style: 'tableHeader' },
+                        { text: 'المادة', style: 'tableHeader' },
+                        { text: 'الشعبة', style: 'tableHeader' },
+                        { text: 'التسلسل', style: 'tableHeader' }
                     ]);
                     data.forEach((item, index) => {
-                        const date = item.date_added ? new Date(item.date_added).toLocaleDateString('ar-EG') : 'غير محدد';
-                        tableBody.push([ (index + 1).toString(), item.section_name || '', item.subject_name || '', item.class_name || '', item.lecture_number || '', item.professor_name || '', item.group_name || '', date ]);
+                        const date = item.date_added 
+                            ? new Date(item.date_added).toLocaleDateString('ar-EG') 
+                            : 'غير محدد';
+                        tableBody.push([
+                            date,
+                            item.group_name || '',
+                            item.professor_name || '',
+                            item.lecture_number || '',
+                            item.class_name || '',
+                            item.subject_name || '',
+                            item.section_name || '',
+                            (index + 1).toString()
+                        ]);
                     });
                 }
 
@@ -206,46 +240,95 @@ async function generateLecturesTablePDF(lecturesData) {
                     section.push({
                         table: {
                             headerRows: 1,
-                            // تعديل مساحات الأعمدة لتستوعب عمود "الشعبة" الجديد
-                            widths: type === 'امتحان' ? ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto'] : ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
+                            widths: type === 'امتحان' 
+                                ? ['auto', '*', 'auto', 'auto', '*', 'auto', 'auto'] 
+                                : ['auto', 'auto', '*', 'auto', 'auto', '*', 'auto', 'auto'],
                             body: tableBody
                         },
                         layout: {
-                            fillColor: function (rowIndex, node, columnIndex) {
+                            fillColor: function (rowIndex) {
                                 return (rowIndex === 0) ? '#2C3E50' : (rowIndex % 2 === 0 ? '#ECF0F1' : null);
                             },
-                            hLineWidth: function (i, node) { return 1; },
-                            vLineWidth: function (i, node) { return 1; },
-                            hLineColor: function (i, node) { return '#BDC3C7'; },
-                            vLineColor: function (i, node) { return '#BDC3C7'; }
+                            hLineWidth: function () { return 1; },
+                            vLineWidth: function () { return 1; },
+                            hLineColor: function () { return '#BDC3C7'; },
+                            vLineColor: function () { return '#BDC3C7'; }
                         },
                         margin: [0, 0, 0, 25]
                     });
                 } else {
-                    section.push({ text: 'لا توجد بيانات مضافة في هذا القسم حالياً.', style: 'noData', margin: [0, 0, 0, 25] });
+                    section.push({ 
+                        text: 'لا توجد بيانات مضافة في هذا القسم حالياً.', 
+                        style: 'noData', 
+                        margin: [0, 0, 0, 25] 
+                    });
                 }
 
                 return section;
             };
 
             const docDefinition = {
-                defaultStyle: { font: 'Amiri', alignment: 'right', fontSize: 11, textDirection: 'rtl' },
+                // ✅ إزالة textDirection واستخدام الإعدادات الصحيحة
+                defaultStyle: { 
+                    font: 'Amiri', 
+                    alignment: 'right', 
+                    fontSize: 11
+                },
                 content: [
-                    // تم إزالة الإيموجيات من العناوين لأنها تسبب مشكلة انعكاس الكلمات (RTL Bug)
                     { text: 'الأرشيف الأكاديمي الشامل', style: 'mainTitle' },
-                    { text: `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`, style: 'subTitle' },
-                    { canvas: [{ type: 'line', x1: 0, y1: 5, x2: 770, y2: 5, lineWidth: 2, lineColor: '#2980B9' }], margin: [0, 0, 0, 20] },
+                    { 
+                        text: `تاريخ التحديث: ${new Date().toLocaleDateString('ar-EG')}`, 
+                        style: 'subTitle' 
+                    },
+                    { 
+                        canvas: [{ 
+                            type: 'line', 
+                            x1: 0, y1: 5, 
+                            x2: 770, y2: 5, 
+                            lineWidth: 2, 
+                            lineColor: '#2980B9' 
+                        }], 
+                        margin: [0, 0, 0, 20] 
+                    },
                     
                     ...createTableSection('جدول المحاضرات', lectures, 'محاضرة'),
                     ...createTableSection('جدول الملخصات', summaries, 'ملخص'),
                     ...createTableSection('جدول الامتحانات', exams, 'امتحان')
                 ],
                 styles: {
-                    mainTitle: { fontSize: 24, bold: true, alignment: 'center', color: '#2C3E50', margin: [0, 0, 0, 5] },
-                    subTitle: { fontSize: 12, alignment: 'center', color: '#7F8C8D', margin: [0, 0, 0, 10] },
-                    sectionTitle: { fontSize: 18, bold: true, color: '#2980B9', margin: [0, 10, 0, 10], decoration: 'underline' },
-                    tableHeader: { bold: true, fontSize: 12, color: 'white', alignment: 'center', margin: [0, 4, 0, 4] },
-                    noData: { fontSize: 12, italic: true, color: '#95A5A6', alignment: 'center' }
+                    mainTitle: { 
+                        fontSize: 24, 
+                        bold: true, 
+                        alignment: 'center', 
+                        color: '#2C3E50', 
+                        margin: [0, 0, 0, 5] 
+                    },
+                    subTitle: { 
+                        fontSize: 12, 
+                        alignment: 'center', 
+                        color: '#7F8C8D', 
+                        margin: [0, 0, 0, 10] 
+                    },
+                    sectionTitle: { 
+                        fontSize: 18, 
+                        bold: true, 
+                        color: '#2980B9', 
+                        margin: [0, 10, 0, 10], 
+                        decoration: 'underline' 
+                    },
+                    tableHeader: { 
+                        bold: true, 
+                        fontSize: 12, 
+                        color: 'white', 
+                        alignment: 'center', 
+                        margin: [0, 4, 0, 4] 
+                    },
+                    noData: { 
+                        fontSize: 12, 
+                        italic: true, 
+                        color: '#95A5A6', 
+                        alignment: 'center' 
+                    }
                 },
                 pageOrientation: 'landscape', 
                 pageSize: 'A4'
@@ -257,9 +340,12 @@ async function generateLecturesTablePDF(lecturesData) {
             pdfDoc.on('end', () => resolve(Buffer.concat(chunks)));
             pdfDoc.on('error', error => reject(error));
             pdfDoc.end();
-        } catch (error) { reject(error); }
+        } catch (error) { 
+            reject(error); 
+        }
     });
-}// ============================================
+}
+
 // أحداث العميل
 // ============================================
 client.on('qr', qr => { qrcode.generate(qr, { small: true }); });
