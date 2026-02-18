@@ -208,6 +208,43 @@ client.on('message_create', async message => {
             }
             return;
         }
+// --- أمر قفل وفتح المجموعة ---
+        if (content === '!قفل' || content === '!lock') {
+            if (!isGroupMessage) return;
+            if (await isAdmin(userId, currentGroupId)) {
+                if (await isBotAdmin(currentGroupId)) {
+                    try {
+                        const chat = await message.getChat();
+                        await chat.setMessagesAdminsOnly(true);
+                        await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
+                    } catch (error) {
+                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء إغلاق المجموعة.*${signature}`);
+                    }
+                } else {
+                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من إغلاق المجموعة.${signature}`);
+                }
+            }
+            return;
+        }
+
+        if (content === '!فتح' || content === '!unlock') {
+            if (!isGroupMessage) return;
+            if (await isAdmin(userId, currentGroupId)) {
+                if (await isBotAdmin(currentGroupId)) {
+                    try {
+                        const chat = await message.getChat();
+                        await chat.setMessagesAdminsOnly(false);
+                        await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
+                    } catch (error) {
+                        await client.sendMessage(replyTo, `❌ *حدث خطأ أثناء فتح المجموعة.*${signature}`);
+                    }
+                } else {
+                    await client.sendMessage(replyTo, `⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من فتح المجموعة.${signature}`);
+                }
+            }
+            return;
+        }
+        
 // --- أمر رابط المجموعة ---
         if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
             if (!isGroupMessage) {
