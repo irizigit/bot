@@ -255,18 +255,10 @@ async function generateLecturesTablePDF(lecturesData) {
             };
             const printer = new PdfPrinter(fonts);
 
-            // الفلترة الذكية للأساتذة والمواد المحذوفة
-            const activeProfs = Array.from(professors.values()).map(v => v.trim());
-            const activeSubjects = Array.from(subjects.values()).map(v => v.trim());
-            const validData = lecturesData.filter(l => 
-                activeProfs.includes((l.professor_name || '').trim()) && 
-                activeSubjects.includes((l.subject_name || '').trim())
-            );
-
-            // تقسيم البيانات
-            const lectures = validData.filter(item => item.type === 'محاضرة');
-            const summaries = validData.filter(item => item.type === 'ملخص');
-            const exams = validData.filter(item => item.type === 'امتحان');
+            // تقسيم البيانات إلى محاضرات وملخصات وامتحانات
+            const lectures = lecturesData.filter(item => item.type === 'محاضرة');
+            const summaries = lecturesData.filter(item => item.type === 'ملخص');
+            const exams = lecturesData.filter(item => item.type === 'امتحان');
 
             // دالة مساعدة لتوليد الجداول
             const createTableSection = (title, data, type) => {
