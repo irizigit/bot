@@ -34,6 +34,93 @@ const groupsMetadata = new Map();
 const blacklist = new Set();
 const admins = new Set(['84564227018@c.us']);
 
+// ============================================
+// نظام القفل والفتح المجدول
+// ============================================
+const scheduledLocks = new Map();   // groupId -> { unlockTime, timeoutId, duration }
+const scheduledUnlocks = new Map(); // groupId -> { lockTime, timeoutId, duration }
+
+// دوال مساعدة للقفل والفتح المجدول
+function parseTimeInput(timeStr) {
+    // تنسيقات مدعومة: 30m, 1h, 2h30m, 30د, 1س, 2س30د
+    const arabicToEnglish = timeStr
+        .replace(/د/g, 'm')
+        .replace(/س/g, 'h')
+        .replace(/ /g, '');
+
+    const hoursMatch = arabicToEnglish.match(/(\d+)h/i);
+    const minutesMatch = arabicToEnglish.match(/(\d+)m/i);
+
+    let totalMinutes = 0;
+    if (hoursMatch) totalMinutes += parseInt(hoursMatch[1]) * 60;
+    if (minutesMatch) totalMinutes += parseInt(minutesMatch[1]);
+
+    return totalMinutes > 0 ? totalMinutes : null;
+}
+
+function formatDuration(minutes) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hours > 0 && mins > 0) return `${hours} ساعة و ${mins} دقيقة`;
+    if (hours > 0) return `${hours} ساعة`;
+    return `${mins} دقيقة`;
+}
+
+function formatTimeRemaining(ms) {
+    const totalMinutes = Math.ceil(ms / (60 * 1000));
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    if (hours > 0 && mins > 0) return `${hours} ساعة و ${mins} دقيقة`;
+    if (hours > 0) return `${hours} ساعة`;
+    return `${mins} دقيقة`;
+}
+
+async function scheduleGroupUnlock(groupId, durationMinutes, replyTo) {
+    // إلغاء أي جدولة سابقة
+    if (scheduledLocks.has(groupId)) {
+        clearTimeout(scheduledLocks.get(groupId).timeoutId);
+        scheduledLocks.delete(groupId);
+    }
+
+    const unlockTime = Date.now() + (durationMinutes * 60 * 1000);
+
+    const timeoutId = setTimeout(async () => {
+        try {
+            const chat = await client.getChatById(groupId);
+            await chat.setMessagesAdminsOnly(false);
+            await client.sendMessage(groupId, `🔓 *تم فتح المجموعة تلقائياً!*\nانتهت مدة القفل (${formatDuration(durationMinutes)}).\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
+            scheduledLocks.delete(groupId);
+        } catch (error) {
+            console.error('خطأ في الفتح التلقائي:', error);
+        }
+    }, durationMinutes * 60 * 1000);
+
+    scheduledLocks.set(groupId, { unlockTime, timeoutId, duration: durationMinutes });
+}
+
+async function scheduleGroupLock(groupId, durationMinutes, replyTo) {
+    // إلغاء أي جدولة سابقة
+    if (scheduledUnlocks.has(groupId)) {
+        clearTimeout(scheduledUnlocks.get(groupId).timeoutId);
+        scheduledUnlocks.delete(groupId);
+    }
+
+    const lockTime = Date.now() + (durationMinutes * 60 * 1000);
+
+    const timeoutId = setTimeout(async () => {
+        try {
+            const chat = await client.getChatById(groupId);
+            await chat.setMessagesAdminsOnly(true);
+            await client.sendMessage(groupId, `🔒 *تم إغلاق المجموعة تلقائياً!*\nانتهت مدة الفتح (${formatDuration(durationMinutes)}).\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
+            scheduledUnlocks.delete(groupId);
+        } catch (error) {
+            console.error('خطأ في القفل التلقائي:', error);
+        }
+    }, durationMinutes * 60 * 1000);
+
+    scheduledUnlocks.set(groupId, { lockTime, timeoutId, duration: durationMinutes });
+}
+
 // هياكل البيانات
 const sections = new Map();     
 const classes = new Map();      
@@ -434,11 +521,14 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أوامر القفل والفتح ---
-        if (content === '!قفل' || content === '!lock' || content === '!فتح' || content === '!unlock') {
+                // --- أوامر القفل والفتح مع دعم التوقيت ---
+        const lockMatch = content.match(/^!(قفل|lock)(?:\s+(.+))?$/i);
+        const unlockMatch = content.match(/^!(فتح|unlock)(?:\s+(.+))?$/i);
+
+        if (lockMatch || unlockMatch) {
             if (!isGroupMessage) return;
             const chat = await message.getChat();
-            
+
             let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
             let isBotGroupAdmin = false;
 
@@ -454,13 +544,131 @@ client.on('message_create', async message => {
             if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من التحكم بالمجموعة.${signature}`); }
 
             try {
-                const action = (content === '!قفل' || content === '!lock');
-                await message.react(action ? '🔒' : '🔓');
-                await chat.setMessagesAdminsOnly(action);
-                
-                if (action) { await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\nلا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`); } 
-                else { await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\nيمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`); }
-            } catch (error) { await message.react('❌'); await sendReply(`❌ *حدث خطأ أثناء التنفيذ!* تحقق من الكونسول للمزيد من التفاصيل.${signature}`); }
+                const isLock = !!lockMatch;
+                const timeArg = isLock ? lockMatch[2] : unlockMatch[2];
+
+                await message.react(isLock ? '🔒' : '🔓');
+                await chat.setMessagesAdminsOnly(isLock);
+
+                if (isLock) {
+                    // إلغاء أي جدولة فتح سابقة
+                    if (scheduledLocks.has(currentGroupId)) {
+                        clearTimeout(scheduledLocks.get(currentGroupId).timeoutId);
+                        scheduledLocks.delete(currentGroupId);
+                    }
+
+                    if (timeArg) {
+                        const duration = parseTimeInput(timeArg);
+                        if (duration) {
+                            await scheduleGroupUnlock(currentGroupId, duration, currentGroupId);
+                            const unlockAt = new Date(Date.now() + duration * 60 * 1000).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+                            await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\n\n⏱️ *مدة القفل:* ${formatDuration(duration)}\n🔓 *سيفتح تلقائياً عند:* ${unlockAt}\n\n💡 لا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
+                        } else {
+                            await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\n\n⚠️ *تنبيه:* صيغة الوقت غير صحيحة. استخدم مثل: 30m, 1h, 2h30m\n\n💡 لا يمكن إرسال الرسائل الآن سوى للمشرفين.${signature}`);
+                        }
+                    } else {
+                        await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\n\n💡 لا يمكن إرسال الرسائل الآن سوى للمشرفين.\n\n📌 *لقفل مؤقت:* أرسل \`!قفل 30m\` أو \`!قفل 1h\`${signature}`);
+                    }
+                } else {
+                    // إلغاء أي جدولة قفل سابقة
+                    if (scheduledUnlocks.has(currentGroupId)) {
+                        clearTimeout(scheduledUnlocks.get(currentGroupId).timeoutId);
+                        scheduledUnlocks.delete(currentGroupId);
+                    }
+
+                    if (timeArg) {
+                        const duration = parseTimeInput(timeArg);
+                        if (duration) {
+                            await scheduleGroupLock(currentGroupId, duration, currentGroupId);
+                            const lockAt = new Date(Date.now() + duration * 60 * 1000).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+                            await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\n\n⏱️ *مدة الفتح:* ${formatDuration(duration)}\n🔒 *سيغلق تلقائياً عند:* ${lockAt}\n\n💡 يمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
+                        } else {
+                            await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\n\n⚠️ *تنبيه:* صيغة الوقت غير صحيحة. استخدم مثل: 30m, 1h, 2h30m\n\n💡 يمكن لجميع الأعضاء إرسال الرسائل الآن.${signature}`);
+                        }
+                    } else {
+                        await client.sendMessage(currentGroupId, `🔓 *تم فتح المجموعة!*\n\n💡 يمكن لجميع الأعضاء إرسال الرسائل الآن.\n\n📌 *لفتح مؤقت:* أرسل \`!فتح 30m\` أو \`!فتح 1h\`${signature}`);
+                    }
+                }
+            } catch (error) { 
+                console.error('خطأ في القفل/الفتح:', error);
+                await message.react('❌'); 
+                await sendReply(`❌ *حدث خطأ أثناء التنفيذ!* تحقق من الكونسول للمزيد من التفاصيل.${signature}`); 
+            }
+            return;
+        }
+
+        // --- أمر حالة القفل/الفتح ---
+        if (content === '!حالة_القفل' || content === '!lock_status') {
+            if (!isGroupMessage) return;
+            const chat = await message.getChat();
+
+            let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
+            for (let participant of chat.participants) {
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    if (getCleanNumber(participant.id) === authorNumber) isSenderAdmin = true;
+                }
+            }
+
+            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+
+            let statusMsg = `📊 *حالة القفل/الفتح*\n━━━━━━━━━━━━━━━━━━\n`;
+
+            const isLocked = chat.groupMetadata.announce === true;
+            statusMsg += isLocked ? `🔒 *الحالة:* مغلقة\n` : `🔓 *الحالة:* مفتوحة\n`;
+
+            if (scheduledLocks.has(currentGroupId)) {
+                const { unlockTime, duration } = scheduledLocks.get(currentGroupId);
+                const remaining = unlockTime - Date.now();
+                statusMsg += `\n⏱️ *قفل مؤقت:*\n📅 المدة: ${formatDuration(duration)}\n⏳ المتبقي: ${formatTimeRemaining(remaining)}\n🔓 يفتح عند: ${new Date(unlockTime).toLocaleTimeString('ar-EG')}`;
+            }
+
+            if (scheduledUnlocks.has(currentGroupId)) {
+                const { lockTime, duration } = scheduledUnlocks.get(currentGroupId);
+                const remaining = lockTime - Date.now();
+                statusMsg += `\n⏱️ *فتح مؤقت:*\n📅 المدة: ${formatDuration(duration)}\n⏳ المتبقي: ${formatTimeRemaining(remaining)}\n🔒 يغلق عند: ${new Date(lockTime).toLocaleTimeString('ar-EG')}`;
+            }
+
+            if (!scheduledLocks.has(currentGroupId) && !scheduledUnlocks.has(currentGroupId)) {
+                statusMsg += `\n💡 لا يوجد قفل/فتح مجدول حالياً.`;
+            }
+
+            statusMsg += `\n\n📌 *لإلغاء الجدولة:* أرسل \`!إلغاء_الجدولة\`${signature}`;
+            await sendReply(statusMsg);
+            return;
+        }
+
+        // --- أمر إلغاء جدولة القفل/الفتح ---
+        if (content === '!إلغاء_الجدولة' || content === '!cancel_schedule') {
+            if (!isGroupMessage) return;
+            const chat = await message.getChat();
+
+            let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
+            for (let participant of chat.participants) {
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    if (getCleanNumber(participant.id) === authorNumber) isSenderAdmin = true;
+                }
+            }
+
+            if (!isSenderAdmin) { return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+
+            let cancelled = false;
+            if (scheduledLocks.has(currentGroupId)) {
+                clearTimeout(scheduledLocks.get(currentGroupId).timeoutId);
+                scheduledLocks.delete(currentGroupId);
+                cancelled = true;
+            }
+            if (scheduledUnlocks.has(currentGroupId)) {
+                clearTimeout(scheduledUnlocks.get(currentGroupId).timeoutId);
+                scheduledUnlocks.delete(currentGroupId);
+                cancelled = true;
+            }
+
+            if (cancelled) {
+                await message.react('✅');
+                await sendReply(`✅ *تم إلغاء الجدولة بنجاح!*\nلم يعد هناك قفل/فتح تلقائي.${signature}`);
+            } else {
+                await sendReply(`⚠️ *لا يوجد جدولة نشطة* لإلغائها.${signature}`);
+            }
             return;
         }
 
@@ -484,8 +692,8 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر تثبيت الرسالة ---
-        if (isGroupMessage && content === '!تثبيت' && message.hasQuotedMsg) {
+                // --- أمر تثبيت الرسالة (محسّن) ---
+        if (isGroupMessage && (content === '!تثبيت' || content === '!pin')) {
             const chat = await message.getChat();
             let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
             let isBotGroupAdmin = false;
@@ -498,15 +706,120 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); }
+            if (!isSenderAdmin) { 
+                await message.react('⚠️'); 
+                return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); 
+            }
+            if (!isBotGroupAdmin) { 
+                await message.react('⚠️'); 
+                return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); 
+            }
+
+            // التحقق من وجود رسالة مُرد عليها
+            if (!message.hasQuotedMsg) { 
+                await message.react('❓'); 
+                return await sendReply(
+                    `📌 *كيفية استخدام أمر التثبيت:*\n\n` +
+                    `1️⃣ اضغط مطولاً على الرسالة المراد تثبيتها\n` +
+                    `2️⃣ اختر *رد / Reply*\n` +
+                    `3️⃣ اكتب الأمر: *!تثبيت*\n\n` +
+                    `💡 *ملاحظة:* يمكن تثبيت أي نوع من الرسائل (نص، صورة، ملف، إلخ)\n` +
+                    `⚠️ يجب أن تكون مشرفاً في المجموعة${signature}`
+                ); 
+            }
 
             try {
-                await message.react('📌');
+                await message.react('⏳');
                 const quotedMsg = await message.getQuotedMessage();
-                await quotedMsg.pin();
-                await sendReply(`✅ *تم تثبيت الرسالة بنجاح!* ✨${signature}`);
-            } catch(e) { await message.react('❌'); await sendReply(`❌ *حدث خطأ أثناء التثبيت.*${signature}`); }
+
+                // التحقق من أن الرسالة موجودة ولم يتم حذفها
+                if (!quotedMsg) {
+                    await message.react('❌');
+                    return await sendReply(`❌ *تعذر العثور على الرسالة!*\nقد تكون الرسالة قديمة جداً أو تم حذفها.${signature}`);
+                }
+
+                // محاولة تثبيت الرسالة
+                await quotedMsg.pin(24 * 60 * 60); // تثبيت لمدة 24 ساعة (أقصى مدة في الواتساب)
+
+                await message.react('📌');
+
+                // الحصول على معلومات إضافية عن الرسالة المثبتة
+                let pinInfo = `✅ *تم تثبيت الرسالة بنجاح!* 📌\n\n`;
+                pinInfo += `👤 *المرسل الأصلي:* ${quotedMsg.author ? quotedMsg.author.split('@')[0] : 'غير معروف'}\n`;
+                pinInfo += `🕐 *تاريخ الإرسال:* ${new Date(quotedMsg.timestamp * 1000).toLocaleString('ar-EG')}\n`;
+                pinInfo += `⏱️ *مدة التثبيت:* 24 ساعة (تلقائي)\n\n`;
+                pinInfo += `💡 *لإلغاء التثبيت:* اضغط على الرسالة المثبتة واختر "إلغاء التثبيت"`;
+
+                await sendReply(pinInfo + signature);
+
+            } catch(e) { 
+                console.error('خطأ في التثبيت:', e);
+                await message.react('❌'); 
+                let errorMsg = `❌ *حدث خطأ أثناء التثبيت!*\n\n`;
+                if (e.message && e.message.includes('not authorized')) {
+                    errorMsg += `⚠️ *السبب:* البوت لا يملك صلاحية التثبيت.\nتأكد من جعل البوت مشرفاً في المجموعة.`;
+                } else if (e.message && e.message.includes('too old')) {
+                    errorMsg += `⚠️ *السبب:* الرسالة قديمة جداً ولا يمكن تثبيتها.`;
+                } else {
+                    errorMsg += `⚠️ *تفاصيل الخطأ:* ${e.message || 'خطأ غير معروف'}`;
+                }
+                await sendReply(errorMsg + signature); 
+            }
+            return;
+        }
+
+        // --- أمر إلغاء تثبيت الرسالة ---
+        if (isGroupMessage && (content === '!إلغاء_تثبيت' || content === '!unpin')) {
+            const chat = await message.getChat();
+            let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
+            let isBotGroupAdmin = false;
+
+            for (let participant of chat.participants) {
+                if (participant.isAdmin || participant.isSuperAdmin) {
+                    const pNum = getCleanNumber(participant.id);
+                    if (pNum === authorNumber) isSenderAdmin = true;
+                    if (pNum === botNumber) isBotGroupAdmin = true;
+                }
+            }
+
+            if (!isSenderAdmin) { 
+                await message.react('⚠️'); 
+                return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); 
+            }
+            if (!isBotGroupAdmin) { 
+                await message.react('⚠️'); 
+                return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من إلغاء التثبيت.${signature}`); 
+            }
+
+            if (!message.hasQuotedMsg) { 
+                await message.react('❓'); 
+                return await sendReply(
+                    `📌 *كيفية إلغاء التثبيت:*\n\n` +
+                    `1️⃣ اضغط مطولاً على الرسالة المثبتة\n` +
+                    `2️⃣ اختر *رد / Reply*\n` +
+                    `3️⃣ اكتب الأمر: *!إلغاء_تثبيت*\n\n` +
+                    `⚠️ يجب أن تكون مشرفاً في المجموعة${signature}`
+                ); 
+            }
+
+            try {
+                await message.react('⏳');
+                const quotedMsg = await message.getQuotedMessage();
+
+                if (!quotedMsg) {
+                    await message.react('❌');
+                    return await sendReply(`❌ *تعذر العثور على الرسالة!*${signature}`);
+                }
+
+                await quotedMsg.unpin();
+                await message.react('✅');
+                await sendReply(`✅ *تم إلغاء تثبيت الرسالة بنجاح!* 🗑️${signature}`);
+
+            } catch(e) { 
+                console.error('خطأ في إلغاء التثبيت:', e);
+                await message.react('❌'); 
+                await sendReply(`❌ *حدث خطأ أثناء إلغاء التثبيت!*\nقد لا تكون هذه الرسالة مثبتة أصلاً.${signature}`); 
+            }
             return;
         }
 
