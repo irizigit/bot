@@ -42,7 +42,6 @@ const scheduledUnlocks = new Map(); // groupId -> { lockTime, timeoutId, duratio
 
 // دوال مساعدة للقفل والفتح المجدول
 function parseTimeInput(timeStr) {
-    // تنسيقات مدعومة: 30m, 1h, 2h30m, 30د, 1س, 2س30د
     const arabicToEnglish = timeStr
         .replace(/د/g, 'm')
         .replace(/س/g, 'h')
@@ -76,7 +75,6 @@ function formatTimeRemaining(ms) {
 }
 
 async function scheduleGroupUnlock(groupId, durationMinutes, replyTo) {
-    // إلغاء أي جدولة سابقة
     if (scheduledLocks.has(groupId)) {
         clearTimeout(scheduledLocks.get(groupId).timeoutId);
         scheduledLocks.delete(groupId);
@@ -99,7 +97,6 @@ async function scheduleGroupUnlock(groupId, durationMinutes, replyTo) {
 }
 
 async function scheduleGroupLock(groupId, durationMinutes, replyTo) {
-    // إلغاء أي جدولة سابقة
     if (scheduledUnlocks.has(groupId)) {
         clearTimeout(scheduledUnlocks.get(groupId).timeoutId);
         scheduledUnlocks.delete(groupId);
@@ -191,9 +188,6 @@ function clearState(userId) {
     }
 }
 
-// ============================================
-// دوال المساعدة لاستخراج الأرقام
-// ============================================
 function getCleanNumber(idData) {
     if (!idData) return '';
     let idStr = typeof idData === 'object' ? (idData._serialized || idData.user || '') : idData.toString();
@@ -201,9 +195,6 @@ function getCleanNumber(idData) {
     return match ? match[1] : idStr;
 }
 
-// ============================================
-// دوال تحميل وحفظ البيانات
-// ============================================
 function loadBlacklist() { try { if (fs.existsSync(blacklistFile)) { const data = fs.readFileSync(blacklistFile, 'utf8'); const list = data ? JSON.parse(data) : []; blacklist.clear(); list.forEach(num => blacklist.add(num)); } } catch (e) {} }
 function loadSections() { try { if (fs.existsSync(sectionsFile)) { const data = fs.readFileSync(sectionsFile, 'utf8'); const list = data ? JSON.parse(data) : []; sections.clear(); list.forEach(item => sections.set(item.id, item.name)); } } catch (e) {} }
 function loadClasses() { try { if (fs.existsSync(classesFile)) { const data = fs.readFileSync(classesFile, 'utf8'); const list = data ? JSON.parse(data) : []; classes.clear(); list.forEach(item => classes.set(item.id, item.name)); } } catch (e) {} }
@@ -221,7 +212,7 @@ function saveSubjects() { try { const list = Array.from(subjects.entries()).map(
 loadBlacklist(); loadSections(); loadClasses(); loadGroups(); loadProfessors(); loadSubjects();
 
 // ============================================
-// دوال PDF (محدثة لتكون مفصلة وأنيقة)
+// دوال PDF (محدثة لدعم كود التحميل المباشر)
 // ============================================
 function checkFonts() {
     const fontsDir = path.join(__dirname, 'fonts');
@@ -232,10 +223,8 @@ function checkFonts() {
     return true;
 }
 
-// دالة لتحويل النص العربي للعرض الصحيح في RTL
 function reverseArabicText(text) {
     if (!text) return '';
-    // تقسيم النص إلى كلمات وعكس ترتيبها
     return text.split(' ').reverse().join(' ');
 }
 
@@ -255,19 +244,14 @@ async function generateLecturesTablePDF(lecturesData) {
             };
             const printer = new PdfPrinter(fonts);
 
-            // تم إزالة الفلترة الذكية للأساتذة والمواد المحذوفة.
-            // البوت الآن يعتمد مباشرة على البيانات الموجودة في قاعدة البيانات (lecturesData).
-
-            // تقسيم البيانات مباشرة من قاعدة البيانات
+            // بدون فلترة - عرض جميع البيانات الموجودة في قاعدة البيانات
             const lectures = lecturesData.filter(item => item.type === 'محاضرة');
             const summaries = lecturesData.filter(item => item.type === 'ملخص');
             const exams = lecturesData.filter(item => item.type === 'امتحان');
 
-            // دالة مساعدة لتوليد الجداول
             const createTableSection = (title, data, type) => {
                 const tableBody = [];
                 
-                // إعداد الترويسات - تم عكس الترتيب للـ RTL
                 if (type === 'امتحان') {
                     tableBody.push([
                         { text: reverseArabicText('التاريخ'), style: 'tableHeader' },
@@ -276,9 +260,9 @@ async function generateLecturesTablePDF(lecturesData) {
                         { text: reverseArabicText('الفصل'), style: 'tableHeader' },
                         { text: reverseArabicText('المادة'), style: 'tableHeader' },
                         { text: reverseArabicText('الشعبة'), style: 'tableHeader' },
-                        { text: reverseArabicText('التسلسل'), style: 'tableHeader' }
+                        { text: reverseArabicText('كود التحميل / ID'), style: 'tableHeader' }
                     ]);
-                    data.forEach((item, index) => {
+                    data.forEach((item) => {
                         const date = item.date_added 
                             ? new Date(item.date_added).toLocaleDateString('ar-EG') 
                             : reverseArabicText('غير محدد');
@@ -289,7 +273,7 @@ async function generateLecturesTablePDF(lecturesData) {
                             reverseArabicText(item.class_name || ''),
                             reverseArabicText(item.subject_name || ''),
                             reverseArabicText(item.section_name || ''),
-                            (index + 1).toString()
+                            'irizi' + item.id
                         ]);
                     });
                 } else {
@@ -301,9 +285,9 @@ async function generateLecturesTablePDF(lecturesData) {
                         { text: reverseArabicText('الفصل'), style: 'tableHeader' },
                         { text: reverseArabicText('المادة'), style: 'tableHeader' },
                         { text: reverseArabicText('الشعبة'), style: 'tableHeader' },
-                        { text: reverseArabicText('التسلسل'), style: 'tableHeader' }
+                        { text: reverseArabicText('كود التحميل / ID'), style: 'tableHeader' }
                     ]);
-                    data.forEach((item, index) => {
+                    data.forEach((item) => {
                         const date = item.date_added 
                             ? new Date(item.date_added).toLocaleDateString('ar-EG') 
                             : reverseArabicText('غير محدد');
@@ -315,7 +299,7 @@ async function generateLecturesTablePDF(lecturesData) {
                             reverseArabicText(item.class_name || ''),
                             reverseArabicText(item.subject_name || ''),
                             reverseArabicText(item.section_name || ''),
-                            (index + 1).toString()
+                            'irizi' + item.id
                         ]);
                     });
                 }
@@ -383,39 +367,11 @@ async function generateLecturesTablePDF(lecturesData) {
                     ...createTableSection('جدول الامتحانات', exams, 'امتحان')
                 ],
                 styles: {
-                    mainTitle: { 
-                        fontSize: 24, 
-                        bold: true, 
-                        alignment: 'center', 
-                        color: '#2C3E50', 
-                        margin: [0, 0, 0, 5] 
-                    },
-                    subTitle: { 
-                        fontSize: 12, 
-                        alignment: 'center', 
-                        color: '#7F8C8D', 
-                        margin: [0, 0, 0, 10] 
-                    },
-                    sectionTitle: { 
-                        fontSize: 18, 
-                        bold: true, 
-                        color: '#2980B9', 
-                        margin: [0, 10, 0, 10], 
-                        decoration: 'underline' 
-                    },
-                    tableHeader: { 
-                        bold: true, 
-                        fontSize: 12, 
-                        color: 'white', 
-                        alignment: 'center', 
-                        margin: [0, 4, 0, 4] 
-                    },
-                    noData: { 
-                        fontSize: 12, 
-                        italic: true, 
-                        color: '#95A5A6', 
-                        alignment: 'center' 
-                    }
+                    mainTitle: { fontSize: 24, bold: true, alignment: 'center', color: '#2C3E50', margin: [0, 0, 0, 5] },
+                    subTitle: { fontSize: 12, alignment: 'center', color: '#7F8C8D', margin: [0, 0, 0, 10] },
+                    sectionTitle: { fontSize: 18, bold: true, color: '#2980B9', margin: [0, 10, 0, 10], decoration: 'underline' },
+                    tableHeader: { bold: true, fontSize: 12, color: 'white', alignment: 'center', margin: [0, 4, 0, 4] },
+                    noData: { fontSize: 12, italic: true, color: '#95A5A6', alignment: 'center' }
                 },
                 pageOrientation: 'landscape', 
                 pageSize: 'A4'
@@ -470,7 +426,6 @@ client.on('message_create', async message => {
         const botNumber = getCleanNumber(client.info.wid);
         const isOwner = (authorNumber === getCleanNumber(OWNER_ID) || authorNumber === getCleanNumber(SECOND_OWNER));
 
-        // دالة الرد المباشر (Reply)
         const sendReply = async (msgContent, options = {}) => {
             try {
                 return await client.sendMessage(replyTo, msgContent, { ...options, quotedMessageId: message.id._serialized });
@@ -478,6 +433,45 @@ client.on('message_create', async message => {
                 return await client.sendMessage(replyTo, msgContent, options);
             }
         };
+
+        // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
+        const directDownloadMatch = content.match(/^irizi(\d+)$/i);
+        if (directDownloadMatch) {
+            const fileId = parseInt(directDownloadMatch[1]);
+            
+            try {
+                await message.react('⏳');
+                const res = await db.query('SELECT * FROM lectures WHERE id = $1', [fileId]);
+                
+                if (res.rows.length > 0) {
+                    const fileData = res.rows[0];
+                    const archiveGroupId = fileData.type === 'امتحان' ? EXAMS_ARCHIVE_GROUP : PDF_ARCHIVE_GROUP;
+                    
+                    const chat = await client.getChatById(archiveGroupId);
+                    const messages = await chat.fetchMessages({ limit: 100 });
+                    const targetMessage = messages.find(msg => msg.id._serialized === fileData.message_id);
+                    
+                    if (targetMessage && targetMessage.hasMedia) {
+                        const media = await targetMessage.downloadMedia();
+                        await sendReply(media, { 
+                            caption: `📥 *تم جلب ${fileData.type} بنجاح!*\n📖 المادة: ${fileData.subject_name}\n${fileData.type === 'امتحان' ? '📅 السنة/الدورة' : '📝 الرقم'}: ${fileData.lecture_number}\n👨‍🏫 الأستاذ: ${fileData.professor_name}\n🏫 الفصل: ${fileData.class_name}${signature}` 
+                        });
+                        await message.react('✅');
+                    } else {
+                        await sendReply(`❌ *عذراً، لم أتمكن من استرجاع الملف.* قد يكون تم حذفه من مجموعة الأرشيف.${signature}`);
+                        await message.react('❌');
+                    }
+                } else {
+                    await sendReply(`⚠️ *عذراً!* الكود غير صحيح أو أن الملف تم حذفه من قاعدة البيانات.${signature}`);
+                    await message.react('❌');
+                }
+            } catch (err) {
+                console.error('خطأ في التحميل المباشر:', err);
+                await sendReply(`❌ *حدث خطأ أثناء جلب الملف!* يرجى المحاولة لاحقاً.${signature}`);
+                await message.react('❌');
+            }
+            return;
+        }
 
         // --- أمر الطرد من المجموعة (Kick) ---
         if (isGroupMessage && (content === '!طرد' || content === '!kick')) {
@@ -516,7 +510,7 @@ client.on('message_create', async message => {
             return;
         }
 
-                // --- أوامر القفل والفتح مع دعم التوقيت ---
+        // --- أوامر القفل والفتح مع دعم التوقيت ---
         const lockMatch = content.match(/^!(قفل|lock)(?:\s+(.+))?$/i);
         const unlockMatch = content.match(/^!(فتح|unlock)(?:\s+(.+))?$/i);
 
@@ -546,7 +540,6 @@ client.on('message_create', async message => {
                 await chat.setMessagesAdminsOnly(isLock);
 
                 if (isLock) {
-                    // إلغاء أي جدولة فتح سابقة
                     if (scheduledLocks.has(currentGroupId)) {
                         clearTimeout(scheduledLocks.get(currentGroupId).timeoutId);
                         scheduledLocks.delete(currentGroupId);
@@ -565,7 +558,6 @@ client.on('message_create', async message => {
                         await client.sendMessage(currentGroupId, `🔒 *تم إغلاق المجموعة!*\n\n💡 لا يمكن إرسال الرسائل الآن سوى للمشرفين.\n\n📌 *لقفل مؤقت:* أرسل \`!قفل 30m\` أو \`!قفل 1h\`${signature}`);
                     }
                 } else {
-                    // إلغاء أي جدولة قفل سابقة
                     if (scheduledUnlocks.has(currentGroupId)) {
                         clearTimeout(scheduledUnlocks.get(currentGroupId).timeoutId);
                         scheduledUnlocks.delete(currentGroupId);
@@ -592,7 +584,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر حالة القفل/الفتح ---
         if (content === '!حالة_القفل' || content === '!lock_status') {
             if (!isGroupMessage) return;
             const chat = await message.getChat();
@@ -632,7 +623,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر إلغاء جدولة القفل/الفتح ---
         if (content === '!إلغاء_الجدولة' || content === '!cancel_schedule') {
             if (!isGroupMessage) return;
             const chat = await message.getChat();
@@ -667,7 +657,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر رابط المجموعة ---
         if (content === '!رابط' || content === '!رابط_المجموعة' || content === '!link') {
             if (!isGroupMessage) { return await sendReply(`⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`); }
             const chat = await message.getChat();
@@ -687,7 +676,6 @@ client.on('message_create', async message => {
             return;
         }
 
-                // --- أمر تثبيت الرسالة (محسّن) ---
         if (isGroupMessage && (content === '!تثبيت' || content === '!pin')) {
             const chat = await message.getChat();
             let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
@@ -701,16 +689,9 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { 
-                await message.react('⚠️'); 
-                return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); 
-            }
-            if (!isBotGroupAdmin) { 
-                await message.react('⚠️'); 
-                return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); 
-            }
+            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); }
 
-            // التحقق من وجود رسالة مُرد عليها
             if (!message.hasQuotedMsg) { 
                 await message.react('❓'); 
                 return await sendReply(
@@ -727,18 +708,15 @@ client.on('message_create', async message => {
                 await message.react('⏳');
                 const quotedMsg = await message.getQuotedMessage();
 
-                // التحقق من أن الرسالة موجودة ولم يتم حذفها
                 if (!quotedMsg) {
                     await message.react('❌');
                     return await sendReply(`❌ *تعذر العثور على الرسالة!*\nقد تكون الرسالة قديمة جداً أو تم حذفها.${signature}`);
                 }
 
-                // محاولة تثبيت الرسالة
-                await quotedMsg.pin(24 * 60 * 60); // تثبيت لمدة 24 ساعة (أقصى مدة في الواتساب)
+                await quotedMsg.pin(24 * 60 * 60);
 
                 await message.react('📌');
 
-                // الحصول على معلومات إضافية عن الرسالة المثبتة
                 let pinInfo = `✅ *تم تثبيت الرسالة بنجاح!* 📌\n\n`;
                 pinInfo += `👤 *المرسل الأصلي:* ${quotedMsg.author ? quotedMsg.author.split('@')[0] : 'غير معروف'}\n`;
                 pinInfo += `🕐 *تاريخ الإرسال:* ${new Date(quotedMsg.timestamp * 1000).toLocaleString('ar-EG')}\n`;
@@ -763,7 +741,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر إلغاء تثبيت الرسالة ---
         if (isGroupMessage && (content === '!إلغاء_تثبيت' || content === '!unpin')) {
             const chat = await message.getChat();
             let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
@@ -777,14 +754,8 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { 
-                await message.react('⚠️'); 
-                return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); 
-            }
-            if (!isBotGroupAdmin) { 
-                await message.react('⚠️'); 
-                return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من إلغاء التثبيت.${signature}`); 
-            }
+            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من إلغاء التثبيت.${signature}`); }
 
             if (!message.hasQuotedMsg) { 
                 await message.react('❓'); 
@@ -818,7 +789,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر البدء وعرض الأوامر (Start) ---
         if (content === '!start' || content === '!الأوامر' || content === '!الاوامر') {
             await message.react('🤖');
             const helpMsg = `🤖 *مرحباً بك في البوت الأكاديمي!* 📚\n\n` +
@@ -827,7 +797,8 @@ client.on('message_create', async message => {
                             `*!start* أو *!الأوامر* : لعرض هذه القائمة.\n` +
                             `*!دليل* أو *!help* : للحصول على كتاب وفيديو يوضحان كيفية الاستخدام.\n` +
                             `*!تحميل* : للبحث عن المحاضرات، الملخصات، أو الامتحانات وتحميلها.\n` +
-                            `*!جدول_المحاضرات* : لاستخراج جدول (PDF) بجميع المحاضرات والملخصات.\n` +
+                            `*!جدول_المحاضرات* : لاستخراج جدول (PDF) بجميع المحاضرات (يحتوي على كود التحميل المباشر لكل ملف).\n` +
+                            `*irizi...* : للتحميل المباشر أرسل الكود (مثال: irizi15).\n` +
                             `*!رابط* : للحصول على رابط الانضمام للمجموعة.\n\n` +
                             `📥 *أوامر الإضافة (رفع الملفات):*\n` +
                             `*!اضافة_pdf* : لإضافة محاضرة أو ملخص جديد للأرشيف.\n` +
@@ -840,13 +811,16 @@ client.on('message_create', async message => {
                             `*!إلغاء_الجدولة* : لإلغاء القفل أو الفتح التلقائي.\n` +
                             `*!تثبيت* : (بالرد على رسالة) لتثبيتها في المجموعة.\n` +
                             `*!إلغاء_تثبيت* : (بالرد على رسالة) لإلغاء تثبيتها.\n\n` +
+                            `⚙️ *أوامر الإدارة (للمالك فقط):*\n` +
+                            `*!إدارة* : لفتح لوحة التحكم الشاملة للبوت.\n` +
+                            `*!انشاء_ارشيف* : لإنشاء مجموعة أرشيف سرية.\n` +
+                            `*!تحديث* : لسحب التحديثات من السيرفر وإعادة التشغيل.\n` +
                             `${signature}`;
             
             await sendReply(helpMsg);
             return;
         }
 
-        // --- أمر دليل الاستخدام ---
         if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
             if (!isGroupMessage) return; 
             await message.react('📖');
@@ -860,7 +834,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر التحديث من GitHub ---
         if (!isGroupMessage && isOwner && content === '!تحديث') {
             await message.react('🔄');
             await sendReply(`🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.${signature}`);
@@ -870,7 +843,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر جدول المحاضرات ---
         if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
             try {
                 await message.react('📊');
@@ -878,13 +850,12 @@ client.on('message_create', async message => {
                 if (res.rows.length === 0) { await sendReply(`⚠️ *عذراً!* لا توجد بيانات مضافة حتى الآن.${signature}`); return; }
                 const pdfBuffer = await generateLecturesTablePDF(res.rows);
                 const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`);
-                await sendReply(media, { caption: `📊 *إليك جدول الأرشيف الشامل محدثاً* ✨${signature}` });
+                await sendReply(media, { caption: `📊 *إليك جدول الأرشيف الشامل محدثاً* ✨\nيمكنك الآن نسخ كود أي ملف من الجدول وإرساله لي مباشرة للتحميل!${signature}` });
                 await message.react('✅');
             } catch (error) { await sendReply(`❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); await message.react('❌'); }
             return;
         }
 
-        // --- أمر إنشاء مجموعة أرشيف جديدة (للامتحانات) ---
         if (!isGroupMessage && isOwner && (content === '!انشاء_ارشيف' || content === '!create_archive')) {
             await sendReply(`⏳ *جاري إنشاء مجموعة الأرشيف الجديدة...*${signature}`);
             try {
@@ -905,7 +876,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- لوحة الإدارة ---
         if (!isGroupMessage && isOwner && content === '!إدارة') {
             await message.react('🛠️');
             await sendReply(`🛠️ *لوحة تحكم المدير* 🛠️\n━━━━━━━━━━━━━━━━━━\n\n👥 *الأعضاء والمشرفين:*\n1. ➕ إضافة عضو\n2. ➖ حذف عضو\n3. ⬆️ ترقية عضو\n4. ⬇️ خفض مشرف\n5. 👨‍💻 إضافة مبرمج\n6. ❌ حذف مبرمج\n7. 🧹 تنظيف المجموعة\n\n⚙️ *إدارة المحتوى:*\n8. 📌 تثبيت رسالة\n9. 📊 جدول المحاضرات\n10. 📚 إدارة المحاضرات\n\n🗂️ *إدارة البيانات:*\n11. 🏷️ إدارة الشعب\n12. 🏫 إدارة الفصول\n13. 👥 إدارة الأفواج\n14. 👨‍🏫 إدارة الأساتذة\n15. 📖 إدارة المواد\n\n📢 *التواصل:*\n16. 🌐 بث لجميع المجموعات\n17. 🎯 بث لمجموعة مخصصة\n\n📖 *دليل الاستخدام (للطلاب):*\n18. 📚 رفع/تحديث كتاب الدليل (PDF)\n19. 🎥 رفع/تحديث فيديو الشرح (MP4)\n\n━━━━━━━━━━━━━━━━━━\n💡 _أرسل رقم الخيار لتنفيذه أو اكتب_ *إلغاء* _للخروج._${signature}`);
@@ -913,7 +883,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أوامر الملفات (إضافة وتحميل) ---
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
@@ -957,7 +926,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- رفع ملفات الدليل (من الإدارة) ---
             if (state.step === 'waiting_for_manual_pdf') {
                 if (message.hasMedia && message.type === 'document') {
                     const media = await message.downloadMedia();
@@ -982,7 +950,6 @@ client.on('message_create', async message => {
                 clearState(userIdRaw); return;
             }
 
-            // --- عمليات إضافة PDF (محاضرة/ملخص) ---
             if (state.step === 'select_pdf_type') {
                 const option = parseInt(content);
                 if (option !== 1 && option !== 2) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار 1 للمحاضرة أو 2 للملخص.${signature}`); return; }
@@ -1079,11 +1046,12 @@ client.on('message_create', async message => {
                         try {
                             const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
-                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11)`;
+                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, group_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), $11) RETURNING id`;
                             const values = [state.pdfType, state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.group, state.formData.number, messageId, senderName, media.filename || 'lecture.pdf'];
-                            await db.query(query, values);
+                            const result = await db.query(query, values);
+                            const newId = result.rows[0].id;
                             
-                            await sendReply(`✅ *تم حفظ الـ ${state.pdfType} بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📝 الرقم: ${state.formData.number}${signature}`);
+                            await sendReply(`✅ *تم حفظ الـ ${state.pdfType} بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📝 الرقم: ${state.formData.number}\n🔑 *كود التحميل السريع:* irizi${newId}${signature}`);
                             await message.react('✅');
                         } catch (error) {
                             console.error('خطأ في الحفظ:', error);
@@ -1096,11 +1064,9 @@ client.on('message_create', async message => {
             }
 
             if (state.step === 'waiting_exam_image') {
-                // دعم الصور للامتحانات
                 if (message.hasMedia && (message.type === 'image' || message.type === 'document')) {
                     const media = await message.downloadMedia();
                     
-                    // التحقق من أن الملف صورة
                     const isImage = media.mimetype && media.mimetype.startsWith('image/');
                     const isImageDocument = message.type === 'document' && (
                         media.mimetype === 'image/jpeg' || 
@@ -1116,12 +1082,13 @@ client.on('message_create', async message => {
                         try {
                             const archiveMsg = await client.sendMessage(EXAMS_ARCHIVE_GROUP, media, { caption });
                             const messageId = archiveMsg.id._serialized;
-                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10)`;
+                            const query = `INSERT INTO lectures (type, section_id, section_name, class_name, subject_name, professor_name, lecture_number, message_id, added_by, date_added, file_name) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), $10) RETURNING id`;
                             const fileExt = media.mimetype.split('/')[1] || 'jpg';
                             const values = ['امتحان', state.sectionId, state.sectionName, state.className, state.formData.subject, state.formData.professor, state.formData.number, messageId, senderName, `exam.${fileExt}`];
-                            await db.query(query, values);
-                            
-                            await sendReply(`✅ *تم حفظ صورة الامتحان بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}${signature}`);
+                            const result = await db.query(query, values);
+                            const newId = result.rows[0].id;
+
+                            await sendReply(`✅ *تم حفظ صورة الامتحان بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}\n🔑 *كود التحميل السريع:* irizi${newId}${signature}`);
                             await message.react('✅');
                         } catch (error) {
                             console.error('خطأ في الحفظ:', error);
@@ -1137,7 +1104,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- عمليات التحميل (Download) ---
             if (state.step === 'select_pdf_type_for_download') {
                 const option = parseInt(content);
                 if (option < 1 || option > 3) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار رقم من 1 إلى 3.${signature}`); return; }
@@ -1181,9 +1147,9 @@ client.on('message_create', async message => {
                         res.rows.forEach((item, idx) => {
                             const date = new Date(item.date_added).toLocaleDateString('ar-EG');
                             if (state.downloadType === 'امتحان') {
-                                listMsg += `${idx + 1}. 📖 ${item.subject_name} | 📅 ${item.lecture_number} | 👨‍🏫 ${item.professor_name} | 📆 ${date}\n`;
+                                listMsg += `${idx + 1}. 📖 ${item.subject_name} | 📅 ${item.lecture_number} | 👨‍🏫 ${item.professor_name} | 🔑 irizi${item.id}\n`;
                             } else {
-                                listMsg += `${idx + 1}. 📖 ${item.subject_name} | 📝 ${item.lecture_number} | 👨‍🏫 ${item.professor_name} | 👥 ${item.group_name || '-'} | 📆 ${date}\n`;
+                                listMsg += `${idx + 1}. 📖 ${item.subject_name} | 📝 ${item.lecture_number} | 👨‍🏫 ${item.professor_name} | 👥 ${item.group_name || '-'} | 🔑 irizi${item.id}\n`;
                             }
                         });
                         listMsg += `\n💡 _أرسل رقم ${state.downloadType} للتحميل أو اكتب_ *إلغاء*`;
@@ -1212,12 +1178,10 @@ client.on('message_create', async message => {
                 await message.react('⏳');
                 
                 try {
-                    // استرجاع الملف من المجموعة الأرشيف
                     const archiveGroupId = state.downloadType === 'امتحان' ? EXAMS_ARCHIVE_GROUP : PDF_ARCHIVE_GROUP;
                     const chat = await client.getChatById(archiveGroupId);
                     const messages = await chat.fetchMessages({ limit: 100 });
                     
-                    // البحث عن الرسالة بالمعرف
                     const targetMessage = messages.find(msg => msg.id._serialized === selectedItem.message_id);
                     
                     if (targetMessage && targetMessage.hasMedia) {
@@ -1245,54 +1209,46 @@ client.on('message_create', async message => {
                 const option = parseInt(content);
                 
                 switch(option) {
-                    case 1: // إضافة عضو
+                    case 1:
                         await sendReply(`👤 *إضافة عضو لمجموعة*\n\nيرجى إرسال رابط المجموعة أو معرف المجموعة (Group ID) ثم رقم العضو بصيغة:\n\nمعرف_المجموعة رقم_العضو\n\nمثال:\n120363xxx@g.us 212600000000${signature}`);
                         state.step = 'add_member_group';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 2: // حذف عضو
+                    case 2:
                         await sendReply(`👤 *حذف عضو من مجموعة*\n\nيرجى إرسال معرف المجموعة ورقم العضو بصيغة:\n\nمعرف_المجموعة رقم_العضو${signature}`);
                         state.step = 'remove_member_group';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 3: // ترقية عضو
+                    case 3:
                         await sendReply(`⬆️ *ترقية عضو لمشرف*\n\nيرجى إرسال معرف المجموعة ورقم العضو بصيغة:\n\nمعيد_المجموعة رقم_العضو${signature}`);
                         state.step = 'promote_member';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 4: // خفض مشرف
+                    case 4:
                         await sendReply(`⬇️ *خفض مشرف إلى عضو*\n\nيرجى إرسال معرف المجموعة ورقم المشرف بصيغة:\n\nمعرف_المجموعة رقم_المشرف${signature}`);
                         state.step = 'demote_member';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 5: // إضافة مبرمج
+                    case 5:
                         await sendReply(`👨‍💻 *إضافة مبرمج جديد*\n\nيرجى إرسال رقم المبرمج الجديد (بدون + أو مسافات):${signature}`);
                         state.step = 'add_admin';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 6: // حذف مبرمج
+                    case 6:
                         await sendReply(`❌ *حذف مبرمج*\n\nيرجى إرسال رقم المبرمج المراد حذفه:${signature}`);
                         state.step = 'remove_admin';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 7: // تنظيف المجموعة
+                    case 7:
                         await sendReply(`🧹 *تنظيف مجموعة*\n\nيرجى إرسال معرف المجموعة المراد تنظيفها:${signature}`);
                         state.step = 'clean_group';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 8: // تثبيت رسالة
+                    case 8:
                         await sendReply(`📌 *تثبيت رسالة*\n\nقم بالرد (Reply) على الرسالة المراد تثبيتها في أي مجموعة واكتب:\n!تثبيت${signature}`);
                         clearState(userIdRaw);
                         break;
-                        
-                    case 9: // جدول المحاضرات
+                    case 9:
                         try {
                             const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
                             if (res.rows.length === 0) {
@@ -1307,264 +1263,62 @@ client.on('message_create', async message => {
                         }
                         clearState(userIdRaw);
                         break;
-                        
-                    case 10: // إدارة المحاضرات
-                        await sendReply(`📚 *إدارة المحاضرات*\n\n1. 📊 عرض الإحصائيات\n2. 🗑️ حذف محاضرة\n3. 🔄 تحديث بيانات\n\n💡 أرسل رقم الخيار:${signature}`);
+                    case 10:
+                        await sendReply(`📚 *إدارة المحاضرات*\n\n1. 📊 عرض الإحصائيات\n2. 🗑️ حذف محاضرة بـ ID\n3. 🔄 تحديث بيانات\n\n💡 أرسل رقم الخيار:${signature}`);
                         state.step = 'manage_lectures';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 11: // إدارة الشعب
+                    case 11:
                         await sendReply(`🏷️ *إدارة الشعب*\n\nالشعب الحالية:\n${Array.from(sections.values()).map((s, i) => `${i + 1}. ${s}`).join('\n')}\n\n1. ➕ إضافة شعبة\n2. ➖ حذف شعبة\n\n💡 أرسل رقم الخيار أو اسم الشعبة الجديدة:${signature}`);
                         state.step = 'manage_sections';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 12: // إدارة الفصول
+                    case 12:
                         await sendReply(`🏫 *إدارة الفصول*\n\nالفصول الحالية:\n${FIXED_CLASSES.map((c, i) => `${i + 1}. ${c}`).join('\n')}\n\n💡 الفصول ثابتة ولا يمكن تعديلها.${signature}`);
                         clearState(userIdRaw);
                         break;
-                        
-                    case 13: // إدارة الأفواج
+                    case 13:
                         await sendReply(`👥 *إدارة الأفواج*\n\nالأفواج الحالية:\n${Array.from(groupsData.values()).map((g, i) => `${i + 1}. ${g}`).join('\n') || 'لا توجد أفواج'}\n\n1. ➕ إضافة فوج\n2. ➖ حذف فوج\n\n💡 أرسل رقم الخيار:${signature}`);
                         state.step = 'manage_groups';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 14: // إدارة الأساتذة
+                    case 14:
                         await sendReply(`👨‍🏫 *إدارة الأساتذة*\n\nالأساتذة الحاليون:\n${Array.from(professors.values()).map((p, i) => `${i + 1}. ${p}`).join('\n') || 'لا يوجد أساتذة'}\n\n1. ➕ إضافة أستاذ\n2. ➖ حذف أستاذ\n\n💡 أرسل رقم الخيار:${signature}`);
                         state.step = 'manage_professors';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 15: // إدارة المواد
+                    case 15:
                         await sendReply(`📖 *إدارة المواد*\n\nالمواد الحالية:\n${Array.from(subjects.values()).map((s, i) => `${i + 1}. ${s}`).join('\n') || 'لا توجد مواد'}\n\n1. ➕ إضافة مادة\n2. ➖ حذف مادة\n\n💡 أرسل رقم الخيار:${signature}`);
                         state.step = 'manage_subjects';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 16: // بث لجميع المجموعات
+                    case 16:
                         await sendReply(`🌐 *بث لجميع المجموعات*\n\nيرجى إرسال الرسالة أو الصورة أو الملف المراد بثه:${signature}`);
                         state.step = 'broadcast_all';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 17: // بث لمجموعة مخصصة
+                    case 17:
                         await sendReply(`🎯 *بث لمجموعة مخصصة*\n\nيرجى إرسال معرف المجموعة ثم الرسالة بصيغة:\n\nمعرف_المجموعة | الرسالة${signature}`);
                         state.step = 'broadcast_specific';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 18: // رفع دليل PDF
+                    case 18:
                         await sendReply(`📚 *رفع كتاب الدليل (PDF)*\n\nيرجى إرسال ملف PDF الخاص بدليل الاستخدام:${signature}`);
                         state.step = 'waiting_for_manual_pdf';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
-                    case 19: // رفع فيديو الشرح
+                    case 19:
                         await sendReply(`🎥 *رفع فيديو الشرح*\n\nيرجى إرسال الفيديو التوضيحي:${signature}`);
                         state.step = 'waiting_for_manual_video';
                         updateState(userIdRaw, replyTo, state);
                         break;
-                        
                     default:
                         await sendReply(`⚠️ *خيار غير صحيح!* يرجى إرسال رقم من 1 إلى 19.${signature}`);
                 }
                 return;
             }
 
-            // --- معالجة أوامر الإدارة الفرعية ---
-            if (state.step === 'add_admin') {
-                const adminNumber = content.replace(/[^0-9]/g, '');
-                if (adminNumber.length < 10) {
-                    await sendReply(`⚠️ *رقم غير صحيح!*${signature}`);
-                    return;
-                }
-                admins.add(adminNumber + '@c.us');
-                await sendReply(`✅ *تم إضافة المبرمج بنجاح!* 🎉\nرقم: ${adminNumber}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'remove_admin') {
-                const adminNumber = content.replace(/[^0-9]/g, '');
-                admins.delete(adminNumber + '@c.us');
-                await sendReply(`✅ *تم حذف المبرمج بنجاح!*${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'manage_sections') {
-                if (content === '1') {
-                    state.step = 'add_section';
-                    updateState(userIdRaw, replyTo, state);
-                    await sendReply(`➕ *إضافة شعبة جديدة*\n\nيرجى إرسال اسم الشعبة:${signature}`);
-                } else if (content === '2') {
-                    state.step = 'remove_section';
-                    updateState(userIdRaw, replyTo, state);
-                    let list = `➖ *حذف شعبة*\n\nالشعب الحالية:\n`;
-                    Array.from(sections.entries()).forEach(([id, name], i) => {
-                        list += `${i + 1}. ${name}\n`;
-                    });
-                    await sendReply(list + `\n💡 أرسل رقم الشعبة المراد حذفها:${signature}`);
-                } else {
-                    // إضافة شعبة جديدة مباشرة
-                    const newId = Date.now().toString();
-                    sections.set(newId, content);
-                    saveSections();
-                    await sendReply(`✅ *تم إضافة الشعبة بنجاح!* 🎉\nالشعبة: ${content}${signature}`);
-                    clearState(userIdRaw);
-                }
-                return;
-            }
-
-            if (state.step === 'add_section') {
-                const newId = Date.now().toString();
-                sections.set(newId, content);
-                saveSections();
-                await sendReply(`✅ *تم إضافة الشعبة بنجاح!* 🎉\nالشعبة: ${content}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'remove_section') {
-                const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > sections.size) {
-                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                    return;
-                }
-                const sectionId = Array.from(sections.keys())[option - 1];
-                const sectionName = sections.get(sectionId);
-                sections.delete(sectionId);
-                saveSections();
-                await sendReply(`✅ *تم حذف الشعبة بنجاح!* 🗑️\nالشعبة: ${sectionName}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'manage_groups') {
-                if (content === '1') {
-                    state.step = 'add_group';
-                    updateState(userIdRaw, replyTo, state);
-                    await sendReply(`➕ *إضافة فوج جديد*\n\nيرجى إرسال اسم الفوج:${signature}`);
-                } else if (content === '2') {
-                    state.step = 'remove_group';
-                    updateState(userIdRaw, replyTo, state);
-                    let list = `➖ *حذف فوج*\n\nالأفواج الحالية:\n`;
-                    Array.from(groupsData.entries()).forEach(([id, name], i) => {
-                        list += `${i + 1}. ${name}\n`;
-                    });
-                    await sendReply(list + `\n💡 أرسل رقم الفوج المراد حذفه:${signature}`);
-                }
-                return;
-            }
-
-            if (state.step === 'add_group') {
-                const newId = Date.now().toString();
-                groupsData.set(newId, content);
-                saveGroups();
-                await sendReply(`✅ *تم إضافة الفوج بنجاح!* 🎉\nالفوج: ${content}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'remove_group') {
-                const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > groupsData.size) {
-                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                    return;
-                }
-                const groupId = Array.from(groupsData.keys())[option - 1];
-                const groupName = groupsData.get(groupId);
-                groupsData.delete(groupId);
-                saveGroups();
-                await sendReply(`✅ *تم حذف الفوج بنجاح!* 🗑️\nالفوج: ${groupName}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'manage_professors') {
-                if (content === '1') {
-                    state.step = 'add_professor';
-                    updateState(userIdRaw, replyTo, state);
-                    await sendReply(`➕ *إضافة أستاذ جديد*\n\nيرجى إرسال اسم الأستاذ:${signature}`);
-                } else if (content === '2') {
-                    state.step = 'remove_professor';
-                    updateState(userIdRaw, replyTo, state);
-                    let list = `➖ *حذف أستاذ*\n\nالأساتذة الحاليون:\n`;
-                    Array.from(professors.entries()).forEach(([id, name], i) => {
-                        list += `${i + 1}. ${name}\n`;
-                    });
-                    await sendReply(list + `\n💡 أرسل رقم الأستاذ المراد حذفه:${signature}`);
-                }
-                return;
-            }
-
-            if (state.step === 'add_professor') {
-                const newId = Date.now().toString();
-                professors.set(newId, content);
-                saveProfessors();
-                await sendReply(`✅ *تم إضافة الأستاذ بنجاح!* 🎉\nالأستاذ: ${content}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'remove_professor') {
-                const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > professors.size) {
-                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                    return;
-                }
-                const profId = Array.from(professors.keys())[option - 1];
-                const profName = professors.get(profId);
-                professors.delete(profId);
-                saveProfessors();
-                await sendReply(`✅ *تم حذف الأستاذ بنجاح!* 🗑️\nالأستاذ: ${profName}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'manage_subjects') {
-                if (content === '1') {
-                    state.step = 'add_subject';
-                    updateState(userIdRaw, replyTo, state);
-                    await sendReply(`➕ *إضافة مادة جديدة*\n\nيرجى إرسال اسم المادة:${signature}`);
-                } else if (content === '2') {
-                    state.step = 'remove_subject';
-                    updateState(userIdRaw, replyTo, state);
-                    let list = `➖ *حذف مادة*\n\nالمواد الحالية:\n`;
-                    Array.from(subjects.entries()).forEach(([id, name], i) => {
-                        list += `${i + 1}. ${name}\n`;
-                    });
-                    await sendReply(list + `\n💡 أرسل رقم المادة المراد حذفها:${signature}`);
-                }
-                return;
-            }
-
-            if (state.step === 'add_subject') {
-                const newId = Date.now().toString();
-                subjects.set(newId, content);
-                saveSubjects();
-                await sendReply(`✅ *تم إضافة المادة بنجاح!* 🎉\nالمادة: ${content}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-
-            if (state.step === 'remove_subject') {
-                const option = parseInt(content);
-                if (isNaN(option) || option < 1 || option > subjects.size) {
-                    await sendReply(`⚠️ *خيار غير صحيح!*${signature}`);
-                    return;
-                }
-                const subjId = Array.from(subjects.keys())[option - 1];
-                const subjName = subjects.get(subjId);
-                subjects.delete(subjId);
-                saveSubjects();
-                await sendReply(`✅ *تم حذف المادة بنجاح!* 🗑️\nالمادة: ${subjName}${signature}`);
-                clearState(userIdRaw);
-                return;
-            }
-// --- إدارة المحاضرات (الخيار 10) ---
+            // --- إدارة المحاضرات (الخيار 10) ---
             if (state.step === 'manage_lectures') {
                 if (content === '1') {
                     // 1. عرض الإحصائيات
@@ -1597,7 +1351,7 @@ client.on('message_create', async message => {
                     // 2. حذف محاضرة
                     state.step = 'delete_lecture_id';
                     updateState(userIdRaw, replyTo, state);
-                    await sendReply(`🗑️ *حذف ملف من الأرشيف*\n━━━━━━━━━━━━━━━━━━\n\nيرجى إرسال *رقم المُعَرِّف (ID)* الخاص بالملف المراد حذفه.\n\n💡 _ملاحظة: يمكنك معرفة الـ ID الخاص بكل ملف من خلال قاعدة البيانات الخاصة بك._${signature}`);
+                    await sendReply(`🗑️ *حذف ملف من الأرشيف*\n━━━━━━━━━━━━━━━━━━\n\nيرجى إرسال *رقم الـ ID* الخاص بالملف المراد حذفه.\n\n💡 _ملاحظة: يمكنك معرفة الرقم انطلاقا من كود التحميل (مثلا إذا كان الكود irizi15، أرسل 15 فقط)._${signature}`);
                     return;
                     
                 } else if (content === '3') {
@@ -1623,7 +1377,6 @@ client.on('message_create', async message => {
                 
                 try {
                     await message.react('⏳');
-                    // التحقق من وجود الملف أولا
                     const checkRes = await db.query('SELECT * FROM lectures WHERE id = $1', [fileId]);
                     
                     if (checkRes.rows.length === 0) {
@@ -1634,8 +1387,6 @@ client.on('message_create', async message => {
                     }
                     
                     const fileData = checkRes.rows[0];
-                    
-                    // تنفيذ عملية الحذف
                     await db.query('DELETE FROM lectures WHERE id = $1', [fileId]);
                     
                     await message.react('✅');
@@ -1649,8 +1400,176 @@ client.on('message_create', async message => {
                 clearState(userIdRaw);
                 return;
             }
+
+            // --- معالجة أوامر الإدارة الفرعية الأخرى ---
+            if (state.step === 'add_admin') {
+                const adminNumber = content.replace(/[^0-9]/g, '');
+                if (adminNumber.length < 10) { await sendReply(`⚠️ *رقم غير صحيح!*${signature}`); return; }
+                admins.add(adminNumber + '@c.us');
+                await sendReply(`✅ *تم إضافة المبرمج بنجاح!* 🎉\nرقم: ${adminNumber}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_admin') {
+                const adminNumber = content.replace(/[^0-9]/g, '');
+                admins.delete(adminNumber + '@c.us');
+                await sendReply(`✅ *تم حذف المبرمج بنجاح!*${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_sections') {
+                if (content === '1') {
+                    state.step = 'add_section';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة شعبة جديدة*\n\nيرجى إرسال اسم الشعبة:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_section';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف شعبة*\n\nالشعب الحالية:\n`;
+                    Array.from(sections.entries()).forEach(([id, name], i) => { list += `${i + 1}. ${name}\n`; });
+                    await sendReply(list + `\n💡 أرسل رقم الشعبة المراد حذفها:${signature}`);
+                } else {
+                    const newId = Date.now().toString();
+                    sections.set(newId, content);
+                    saveSections();
+                    await sendReply(`✅ *تم إضافة الشعبة بنجاح!* 🎉\nالشعبة: ${content}${signature}`);
+                    clearState(userIdRaw);
+                }
+                return;
+            }
+
+            if (state.step === 'add_section') {
+                const newId = Date.now().toString();
+                sections.set(newId, content);
+                saveSections();
+                await sendReply(`✅ *تم إضافة الشعبة بنجاح!* 🎉\nالشعبة: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_section') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > sections.size) { await sendReply(`⚠️ *خيار غير صحيح!*${signature}`); return; }
+                const sectionId = Array.from(sections.keys())[option - 1];
+                const sectionName = sections.get(sectionId);
+                sections.delete(sectionId);
+                saveSections();
+                await sendReply(`✅ *تم حذف الشعبة بنجاح!* 🗑️\nالشعبة: ${sectionName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_groups') {
+                if (content === '1') {
+                    state.step = 'add_group';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة فوج جديد*\n\nيرجى إرسال اسم الفوج:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_group';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف فوج*\n\nالأفواج الحالية:\n`;
+                    Array.from(groupsData.entries()).forEach(([id, name], i) => { list += `${i + 1}. ${name}\n`; });
+                    await sendReply(list + `\n💡 أرسل رقم الفوج المراد حذفه:${signature}`);
+                }
+                return;
+            }
+
+            if (state.step === 'add_group') {
+                const newId = Date.now().toString();
+                groupsData.set(newId, content);
+                saveGroups();
+                await sendReply(`✅ *تم إضافة الفوج بنجاح!* 🎉\nالفوج: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_group') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > groupsData.size) { await sendReply(`⚠️ *خيار غير صحيح!*${signature}`); return; }
+                const groupId = Array.from(groupsData.keys())[option - 1];
+                const groupName = groupsData.get(groupId);
+                groupsData.delete(groupId);
+                saveGroups();
+                await sendReply(`✅ *تم حذف الفوج بنجاح!* 🗑️\nالفوج: ${groupName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_professors') {
+                if (content === '1') {
+                    state.step = 'add_professor';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة أستاذ جديد*\n\nيرجى إرسال اسم الأستاذ:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_professor';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف أستاذ*\n\nالأساتذة الحاليون:\n`;
+                    Array.from(professors.entries()).forEach(([id, name], i) => { list += `${i + 1}. ${name}\n`; });
+                    await sendReply(list + `\n💡 أرسل رقم الأستاذ المراد حذفه:${signature}`);
+                }
+                return;
+            }
+
+            if (state.step === 'add_professor') {
+                const newId = Date.now().toString();
+                professors.set(newId, content);
+                saveProfessors();
+                await sendReply(`✅ *تم إضافة الأستاذ بنجاح!* 🎉\nالأستاذ: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_professor') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > professors.size) { await sendReply(`⚠️ *خيار غير صحيح!*${signature}`); return; }
+                const profId = Array.from(professors.keys())[option - 1];
+                const profName = professors.get(profId);
+                professors.delete(profId);
+                saveProfessors();
+                await sendReply(`✅ *تم حذف الأستاذ بنجاح!* 🗑️\nالأستاذ: ${profName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'manage_subjects') {
+                if (content === '1') {
+                    state.step = 'add_subject';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`➕ *إضافة مادة جديدة*\n\nيرجى إرسال اسم المادة:${signature}`);
+                } else if (content === '2') {
+                    state.step = 'remove_subject';
+                    updateState(userIdRaw, replyTo, state);
+                    let list = `➖ *حذف مادة*\n\nالمواد الحالية:\n`;
+                    Array.from(subjects.entries()).forEach(([id, name], i) => { list += `${i + 1}. ${name}\n`; });
+                    await sendReply(list + `\n💡 أرسل رقم المادة المراد حذفها:${signature}`);
+                }
+                return;
+            }
+
+            if (state.step === 'add_subject') {
+                const newId = Date.now().toString();
+                subjects.set(newId, content);
+                saveSubjects();
+                await sendReply(`✅ *تم إضافة المادة بنجاح!* 🎉\nالمادة: ${content}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
+            if (state.step === 'remove_subject') {
+                const option = parseInt(content);
+                if (isNaN(option) || option < 1 || option > subjects.size) { await sendReply(`⚠️ *خيار غير صحيح!*${signature}`); return; }
+                const subjId = Array.from(subjects.keys())[option - 1];
+                const subjName = subjects.get(subjId);
+                subjects.delete(subjId);
+                saveSubjects();
+                await sendReply(`✅ *تم حذف المادة بنجاح!* 🗑️\nالمادة: ${subjName}${signature}`);
+                clearState(userIdRaw);
+                return;
+            }
+
             if (state.step === 'broadcast_all') {
-                // بث لجميع المجموعات
                 const chats = await client.getChats();
                 const groups = chats.filter(c => c.isGroup);
                 let sentCount = 0;
@@ -1664,9 +1583,7 @@ client.on('message_create', async message => {
                             await client.sendMessage(group.id._serialized, content + signature);
                         }
                         sentCount++;
-                    } catch (e) {
-                        console.error(`فشل الإرسال إلى ${group.name}:`, e.message);
-                    }
+                    } catch (e) { console.error(`فشل الإرسال إلى ${group.name}:`, e.message); }
                 }
                 
                 await sendReply(`✅ *تم البث بنجاح!* 📡\nتم الإرسال إلى ${sentCount} مجموعة.${signature}`);
@@ -1695,5 +1612,4 @@ client.on('message_create', async message => {
     }
 });
 
-// تشغيل البوت
 client.initialize();
