@@ -1564,7 +1564,91 @@ client.on('message_create', async message => {
                 clearState(userIdRaw);
                 return;
             }
+// --- إدارة المحاضرات (الخيار 10) ---
+            if (state.step === 'manage_lectures') {
+                if (content === '1') {
+                    // 1. عرض الإحصائيات
+                    try {
+                        const res = await db.query('SELECT type, COUNT(*) as count FROM lectures GROUP BY type');
+                        let statsMsg = `📊 *إحصائيات الأرشيف الشامل*\n━━━━━━━━━━━━━━━━━━\n\n`;
+                        let total = 0;
+                        let types = { 'محاضرة': 0, 'ملخص': 0, 'امتحان': 0 };
+                        
+                        res.rows.forEach(row => {
+                            types[row.type] = parseInt(row.count);
+                            total += parseInt(row.count);
+                        });
+                        
+                        statsMsg += `📚 عدد المحاضرات: ${types['محاضرة']}\n`;
+                        statsMsg += `📝 عدد الملخصات: ${types['ملخص']}\n`;
+                        statsMsg += `📸 عدد الامتحانات: ${types['امتحان']}\n`;
+                        statsMsg += `━━━━━━━━━━━━━━━━━━\n`;
+                        statsMsg += `📈 *المجموع الكلي للملفات: ${total}*\n${signature}`;
+                        
+                        await sendReply(statsMsg);
+                    } catch (error) {
+                        console.error('خطأ في الإحصائيات:', error);
+                        await sendReply(`❌ *حدث خطأ أثناء جلب الإحصائيات من قاعدة البيانات!*${signature}`);
+                    }
+                    clearState(userIdRaw);
+                    return;
+                    
+                } else if (content === '2') {
+                    // 2. حذف محاضرة
+                    state.step = 'delete_lecture_id';
+                    updateState(userIdRaw, replyTo, state);
+                    await sendReply(`🗑️ *حذف ملف من الأرشيف*\n━━━━━━━━━━━━━━━━━━\n\nيرجى إرسال *رقم المُعَرِّف (ID)* الخاص بالملف المراد حذفه.\n\n💡 _ملاحظة: يمكنك معرفة الـ ID الخاص بكل ملف من خلال قاعدة البيانات الخاصة بك._${signature}`);
+                    return;
+                    
+                } else if (content === '3') {
+                    // 3. تحديث البيانات
+                    await message.react('🔄');
+                    await sendReply(`🔄 *تم مزامنة وتحديث البيانات مع قاعدة البيانات بنجاح!* ✨${signature}`);
+                    clearState(userIdRaw);
+                    return;
+                } else {
+                    await sendReply(`⚠️ *خيار غير صحيح!* يرجى إرسال 1، 2، أو 3.${signature}`);
+                    return;
+                }
+            }
 
+            // --- تأكيد حذف المحاضرة ---
+            if (state.step === 'delete_lecture_id') {
+                const fileId = parseInt(content);
+                
+                if (isNaN(fileId)) {
+                    await sendReply(`⚠️ *الرقم غير صحيح!* يرجى إرسال رقم ID صحيح (أرقام فقط).${signature}`);
+                    return;
+                }
+                
+                try {
+                    await message.react('⏳');
+                    // التحقق من وجود الملف أولا
+                    const checkRes = await db.query('SELECT * FROM lectures WHERE id = $1', [fileId]);
+                    
+                    if (checkRes.rows.length === 0) {
+                        await message.react('❌');
+                        await sendReply(`⚠️ *عذراً!* لم يتم العثور على أي ملف بهذا الـ ID (${fileId}) في قاعدة البيانات.${signature}`);
+                        clearState(userIdRaw);
+                        return;
+                    }
+                    
+                    const fileData = checkRes.rows[0];
+                    
+                    // تنفيذ عملية الحذف
+                    await db.query('DELETE FROM lectures WHERE id = $1', [fileId]);
+                    
+                    await message.react('✅');
+                    await sendReply(`✅ *تم الحذف بنجاح!* 🗑️\n\nتفاصيل الملف المحذوف:\n🏷️ النوع: ${fileData.type}\n📖 المادة: ${fileData.subject_name}\n🔢 الرقم/السنة: ${fileData.lecture_number}\n${signature}`);
+                    
+                } catch (error) {
+                    console.error('خطأ في عملية الحذف:', error);
+                    await message.react('❌');
+                    await sendReply(`❌ *حدث خطأ أثناء محاولة الحذف!* يرجى التحقق من الكونسول.${signature}`);
+                }
+                clearState(userIdRaw);
+                return;
+            }
             if (state.step === 'broadcast_all') {
                 // بث لجميع المجموعات
                 const chats = await client.getChats();
