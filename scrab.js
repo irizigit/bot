@@ -2,6 +2,9 @@ const puppeteer = require('puppeteer');
 const path = require('path');
 const fs = require('fs');
 
+// ==========================================
+// 1. دالة الدخول للموقع وجلب السكرين شوت
+// ==========================================
 async function getStudentInfo(apogee, cin, birthDate) {
     const browser = await puppeteer.launch({
         headless: "new",
@@ -15,11 +18,9 @@ async function getStudentInfo(apogee, cin, birthDate) {
     });
 
     const page = await browser.newPage();
-    // درنا شاشة عريضة باش السكرين شوت يجي فيها الجدول كامل
     await page.setViewport({ width: 1280, height: 1024 }); 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    // تسريع المتصفح مع السماح لـ CSS باش يجي الجدول مقاد
     await page.setRequestInterception(true);
     page.on('request', (request) => {
         if (['image', 'media', 'font'].includes(request.resourceType())) {
@@ -44,7 +45,6 @@ async function getStudentInfo(apogee, cin, birthDate) {
 
         await new Promise(r => setTimeout(r, 2000));
 
-        // التأكد من أن الدخول نجح
         const isError = await page.evaluate(() => {
             return document.body.innerText.includes('خطأ') || document.body.innerText.includes('incorrectes');
         });
@@ -54,10 +54,8 @@ async function getStudentInfo(apogee, cin, birthDate) {
             return { success: false, text: "❌ المعلومات المدخلة غير صحيحة." };
         }
 
-        // 🎯 البحث عن زر "Résultats" والضغط عليه
         const clicked = await page.evaluate(() => {
             const elements = Array.from(document.querySelectorAll('a, button, div.card'));
-            // كنقلبو على أي حاجة مكتوب فيها Résultats
             const resBtn = elements.find(el => el.innerText && el.innerText.includes('Résultats'));
             if (resBtn) {
                 resBtn.click();
@@ -71,11 +69,9 @@ async function getStudentInfo(apogee, cin, birthDate) {
             return { success: false, text: "❌ تم الدخول بنجاح، لكن لم أتمكن من العثور على قسم 'النتائج'." };
         }
 
-        // انتظار تحميل صفحة النقط
         await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log("AJAX Load"));
-        await new Promise(r => setTimeout(r, 4000)); // نتسناو الجدول يترسم مزيان
+        await new Promise(r => setTimeout(r, 4000)); 
 
-        // 📸 أخذ سكرين شوت للصفحة ديال النقط
         const screenshotPath = path.join(__dirname, `results_${apogee}.png`);
         await page.screenshot({ path: screenshotPath, fullPage: true });
 
@@ -89,4 +85,55 @@ async function getStudentInfo(apogee, cin, birthDate) {
     }
 }
 
-module.exports = { getStudentInfo };
+// ==========================================
+// 2. دالة التعامل مع رسائل الواتساب
+// ==========================================
+async function handleStudentCommand(content, message, sendReply, MessageMedia, signature) {
+    const args = content.split(' ').slice(1);
+    
+    if (args.length < 3) {
+        return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
+    }
+
+    let apogee = "", cin = "", birth = "";
+
+    args.forEach(arg => {
+        if (arg.includes('-') || arg.includes('/')) {
+            birth = arg;
+        } else if (/^[a-zA-Z]/.test(arg)) {
+            cin = arg.toUpperCase();
+        } else if (/^\d+$/.test(arg)) {
+            apogee = arg;
+        }
+    });
+
+    if (!apogee || !cin || !birth) {
+         return sendReply(`⚠️ *تأكد من إدخال المعلومات بشكل صحيح:* \n- رقم الأبوجي (أرقام فقط)\n- رقم البطاقة الوطنية (حروف وأرقام)\n- تاريخ الازدياد (YYYY-MM-DD)${signature}`);
+    }
+    
+    await message.react('⏳');
+    await sendReply('⏳ *جاري الدخول للحساب وجلب النقط...* المرجو الانتظار.');
+
+    try {
+        const result = await getStudentInfo(apogee, cin, birth);
+        
+        if (result.success && result.path) {
+            const media = MessageMedia.fromFilePath(result.path);
+            await sendReply(media, { caption: `✅ *تفضل، هاهي النقط والنتائج ديالك!* 📊${signature}` });
+            await message.react('✅');
+            
+            if (fs.existsSync(result.path)) {
+                fs.unlinkSync(result.path);
+            }
+        } else {
+            await sendReply(result.text + signature);
+            await message.react('❌');
+        }
+    } catch (err) {
+        await sendReply("❌ وقع مشكل تقني داخلي أثناء معالجة الطلب." + signature);
+        await message.react('❌');
+    }
+}
+
+// تصدير الدالة باش نقدرو نخدمو بيها فملفات أخرى
+module.exports = { handleStudentCommand };
