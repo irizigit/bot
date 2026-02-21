@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const PdfPrinter = require('pdfmake');
 const { exec } = require('child_process');
-const { getStudentInfo } = require('./scrab.js');
+const { handleStudentCommand } = require('./scrab.js');
 // --- ربط قاعدة البيانات ---
 const db = require('./database.js');
 
@@ -434,54 +434,9 @@ client.on('message_create', async message => {
             }
         };
 // أمر فحص معلومات الطالب
-if (content.startsWith('!فحص')) {
-            const args = content.split(' ').slice(1);
-            
-            if (args.length < 3) {
-                return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
-            }
-
-            let apogee = "", cin = "", birth = "";
-
-            args.forEach(arg => {
-                if (arg.includes('-') || arg.includes('/')) {
-                    birth = arg;
-                } else if (/^[a-zA-Z]/.test(arg)) {
-                    cin = arg.toUpperCase();
-                } else if (/^\d+$/.test(arg)) {
-                    apogee = arg;
-                }
-            });
-
-            if (!apogee || !cin || !birth) {
-                 return sendReply(`⚠️ *تأكد من إدخال المعلومات بشكل صحيح:* \n- رقم الأبوجي (أرقام فقط)\n- رقم البطاقة الوطنية (حروف وأرقام)\n- تاريخ الازدياد (YYYY-MM-DD)${signature}`);
-            }
-            
-            await message.react('⏳');
-            await sendReply('⏳ *جاري الدخول للحساب وجلب النقط...* المرجو الانتظار.');
-
-            try {
-                const result = await getStudentInfo(apogee, cin, birth);
-                
-                if (result.success && result.path) {
-                    // إذا نجح، كيصيفط السكرين شوت
-                    const media = MessageMedia.fromFilePath(result.path);
-                    await sendReply(media, { caption: `✅ *تفضل، هاهي النقط والنتائج ديالك!* 📊${signature}` });
-                    await message.react('✅');
-                    
-                    // كيمسح التصويرة من السيرفر باش ما تعمرش المساحة
-                    if (fs.existsSync(result.path)) {
-                        fs.unlinkSync(result.path);
-                    }
-                } else {
-                    // إذا فشل الدخول أو وقع مشكل
-                    await sendReply(result.text + signature);
-                    await message.react('❌');
-                }
-            } catch (err) {
-                await sendReply("❌ وقع مشكل تقني داخلي أثناء معالجة الطلب." + signature);
-                await message.react('❌');
-            }
+// أمر فحص معلومات الطالب
+        if (content.startsWith('!فحص')) {
+            await handleStudentCommand(content, message, sendReply, MessageMedia, signature);
             return;
         }
         // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---    
