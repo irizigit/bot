@@ -931,7 +931,12 @@ client.on('message_create', async message => {
                 clearState(userIdRaw);
                 return;
             }
-
+// استقبال اختيار الطالب من قائمة الفحص
+            if (state.step === 'student_menu_choice') {
+                await processStudentChoice(content, message, sendReply, state, clearState, userIdRaw, MessageMedia, signature);
+                return;
+            }
+            
             if (state.step === 'waiting_for_manual_pdf') {
                 if (message.hasMedia && message.type === 'document') {
                     const media = await message.downloadMedia();
