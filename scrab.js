@@ -1,11 +1,5 @@
 const puppeteer = require('puppeteer');
 
-/**
- * دالة لجلب معلومات الطالب من موقع الكلية
- * @param {string} apogee - رقم الأبوجي
- * @param {string} cin - رقم بطاقة التعريف الوطنية
- * @param {string} birthDate - تاريخ الازدياد (YYYY-MM-DD)
- */
 async function getStudentInfo(apogee, cin, birthDate) {
     const browser = await puppeteer.launch({
         headless: true,
@@ -18,41 +12,48 @@ async function getStudentInfo(apogee, cin, birthDate) {
     });
 
     const page = await browser.newPage();
-    
+    // تعيين User Agent ليبدو المتصفح كأنه متصفح حقيقي
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
     try {
-        // الدخول للموقع
-        await page.goto('https://web.flshbm.ma/', { waitUntil: 'networkidle2', timeout: 60000 });
+        await page.goto('https://web.flshbm.ma/', { 
+            waitUntil: 'networkidle2', 
+            timeout: 60000 
+        });
 
-        // إدخال البيانات
-        await page.type('input[name="apogee"]', apogee);
-        await page.type('input[name="cin"]', cin);
-        await page.type('input[name="date_naissance"]', birthDate);
+        // الانتظار حتى تظهر خانة الأبوجي في الصفحة قبل المحاولة
+        await page.waitForSelector('input[name="apogee"]', { timeout: 10000 });
 
-        // الضغط على زر الإرسال والانتظار حتى تحميل الصفحة التالية
+        // إدخال البيانات بدقة
+        await page.type('input[name="apogee"]', apogee, { delay: 50 });
+        await page.type('input[name="cin"]', cin, { delay: 50 });
+        await page.type('input[name="date_naissance"]', birthDate, { delay: 50 });
+
+        // النقر على زر الإرسال والانتظار
         await Promise.all([
             page.click('button[type="submit"]'),
             page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
         ]);
 
-        // استخراج النص من الصفحة (يمكن تعديل الـ Selector بناءً على ما يظهر في الصورة)
         const resultText = await page.evaluate(() => {
-            // نحاول جلب محتوى الكارط أو الجدول الذي يظهر فيه الاسم والمعلومات
-            const mainContent = document.querySelector('.card-body') || document.querySelector('main') || document.body;
-            return mainContent ? mainContent.innerText.trim() : "تعذر قراءة محتوى الصفحة";
+            // محاولة جلب المعلومات من الكارط أو الجدول
+            const card = document.querySelector('.card-body') || document.querySelector('main');
+            return card ? card.innerText.trim() : null;
         });
 
         await browser.close();
         
-        if (resultText.includes("خطأ") || resultText.length < 10) {
-            return "❌ المعلومات المدخلة غير صحيحة أو لا يوجد سجل لهذا الطالب.";
+        if (!resultText || resultText.includes("خطأ")) {
+            return "❌ المعلومات المدخلة غير صحيحة أو الموقع لا يستجيب حالياً.";
         }
 
-        return `✅ *نتائج الفحص من الموقع:* \n\n${resultText}`;
+        return `✅ *نتائج الفحص:* \n\n${resultText}`;
 
     } catch (error) {
-        console.error('Scraping Error:', error);
+        console.error('Scraping Error:', error.message);
         await browser.close();
-        return "❌ حدث خطأ أثناء الاتصال بالموقع، يرجى المحاولة لاحقاً.";
+        // إرجاع رسالة خطأ واضحة للمستخدم
+        return `❌ حدث خطأ أثناء الاتصال بالموقع: ${error.message}`;
     }
 }
 
