@@ -13,42 +13,46 @@ async function getStudentInfo(apogee, cin, birthDate) {
     });
 
     const page = await browser.newPage();
+    // إخفاء هوية البوت لكي لا يتم حظره
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     try {
-        // الدخول للموقع
+        // 1. الدخول للموقع
         await page.goto('https://web.flshbm.ma/', { waitUntil: 'networkidle2', timeout: 45000 });
-        
-        // نتسناو 6 ثواني باش نتأكدو أن كلشي تحمل
-        await new Promise(r => setTimeout(r, 6000));
 
-        // فحص الصفحة وجلب جميع الخانات المتوفرة
-        const pageInfo = await page.evaluate(() => {
-            const inputs = document.querySelectorAll('input');
-            let info = `عدد الخانات (Inputs) اللي لقيت فالموقع: ${inputs.length}\n\n`;
-            
-            inputs.forEach((inp, index) => {
-                info += `[${index + 1}] Type: "${inp.type}" | Name: "${inp.name}" | ID: "${inp.id}" | Placeholder: "${inp.placeholder}"\n`;
-            });
-            
-            // فحص واش كاين شي Iframe (إطار داخلي)
-            const iframes = document.querySelectorAll('iframe');
-            info += `\nعدد الإطارات (iframes): ${iframes.length}`;
-            
-            // فحص الأزرار
-            const buttons = document.querySelectorAll('button');
-            info += `\nعدد الأزرار (Buttons): ${buttons.length}`;
+        // 2. الانتظار حتى تظهر خانة الأبوجي (بالاعتماد على الـ ID الصحيح)
+        await page.waitForSelector('#apogee', { timeout: 15000 });
 
-            return info;
+        // 3. إدخال البيانات باستخدام الـ IDs الصحيحة التي اكتشفناها
+        await page.type('#apogee', apogee, { delay: 50 });
+        await page.type('#cin', cin, { delay: 50 });
+        await page.type('#date_naissance', birthDate, { delay: 50 });
+
+        // 4. النقر على الزر (بما أن هناك زراً واحداً فقط سنضغط عليه مباشرة) والانتظار
+        await Promise.all([
+            page.click('button'),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 }),
+        ]);
+
+        // 5. استخراج النتيجة بعد تسجيل الدخول
+        const resultText = await page.evaluate(() => {
+            const card = document.querySelector('.card-body') || document.querySelector('main') || document.body;
+            return card ? card.innerText.trim() : null;
         });
 
         await browser.close();
-        return `🔍 *تقرير فحص الموقع:*\n\n${pageInfo}`;
+        
+        // 6. التحقق من النتيجة
+        if (!resultText || resultText.includes("خطأ")) {
+            return "❌ المعلومات المدخلة غير صحيحة أو لا يوجد سجل لهذا الطالب.";
+        }
+
+        return `✅ *نتائج الفحص:* \n\n${resultText}`;
 
     } catch (error) {
         console.error('Scraping Error:', error.message);
         await browser.close();
-        return `❌ حدث خطأ أثناء الاتصال: ${error.message}`;
+        return `❌ حدث خطأ أثناء الاتصال بالموقع.\nالسبب: ${error.message}`;
     }
 }
 
