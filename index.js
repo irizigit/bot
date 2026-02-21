@@ -434,58 +434,52 @@ client.on('message_create', async message => {
             }
         };
 // أمر فحص معلومات الطالب
-if (content.startsWith('!فحص')) {
-    const args = content.split(' ');
-    // نتوقع: !فحص [apogee] [cin] [birth_date]
-    if (args.length < 4) {
-        return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
-    }
+// أمر فحص معلومات الطالب
+        if (content.startsWith('!فحص')) {
+            const args = content.split(' ').slice(1);
+            
+            if (args.length < 3) {
+                return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
+            }
 
-    if (content.startsWith('!فحص')) {
-    // Récupérer les arguments sans la commande '!فحص'
-    const args = content.split(' ').slice(1);
-    
-    if (args.length < 3) {
-        return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
-    }
+            let apogee = "", cin = "", birth = "";
 
-    let apogee = "", cin = "", birth = "";
+            // Détection automatique et intelligente des champs
+            args.forEach(arg => {
+                if (arg.includes('-') || arg.includes('/')) {
+                    birth = arg; // La date contient des tirets (-) ou des slashs (/)
+                } else if (/^[a-zA-Z]/.test(arg)) {
+                    cin = arg.toUpperCase(); // Le CIN commence toujours par des lettres
+                } else if (/^\d+$/.test(arg)) {
+                    apogee = arg; // Le numéro Apogée ne contient que des chiffres
+                }
+            });
 
-    // Détection automatique et intelligente des champs
-    args.forEach(arg => {
-        if (arg.includes('-') || arg.includes('/')) {
-            birth = arg; // La date contient des tirets (-) ou des slashs (/)
-        } else if (/^[a-zA-Z]/.test(arg)) {
-            cin = arg.toUpperCase(); // Le CIN commence toujours par des lettres
-        } else if (/^\d+$/.test(arg)) {
-            apogee = arg; // Le numéro Apogée ne contient que des chiffres
+            // Vérification si toutes les données ont bien été reconnues
+            if (!apogee || !cin || !birth) {
+                 return sendReply(`⚠️ *تأكد من إدخال المعلومات بشكل صحيح:* \n- رقم الأبوجي (أرقام فقط)\n- رقم البطاقة الوطنية (حروف وأرقام)\n- تاريخ الازدياد (YYYY-MM-DD)${signature}`);
+            }
+            
+            await message.react('⏳');
+            await sendReply('⏳ *جاري الاتصال بموقع الكلية وجلب بياناتك...* المرجو الانتظار.');
+
+            try {
+                const result = await getStudentInfo(apogee, cin, birth);
+                await sendReply(result + signature);
+                
+                if (result.includes('✅')) {
+                    await message.react('✅');
+                } else {
+                    await message.react('❌');
+                }
+            } catch (err) {
+                await sendReply("❌ وقع مشكل تقني داخلي أثناء معالجة الطلب." + signature);
+                await message.react('❌');
+            }
+            return;
         }
-    });
 
-    // Vérification si toutes les données ont bien été reconnues
-    if (!apogee || !cin || !birth) {
-         return sendReply(`⚠️ *تأكد من إدخال المعلومات بشكل صحيح:* \n- رقم الأبوجي (أرقام فقط)\n- رقم البطاقة الوطنية (حروف وأرقام)\n- تاريخ الازدياد (YYYY-MM-DD)${signature}`);
-    }
-    
-    await message.react('⏳');
-    await sendReply('⏳ *جاري الاتصال بموقع الكلية وجلب بياناتك...* المرجو الانتظار.');
-
-    try {
-        const result = await getStudentInfo(apogee, cin, birth);
-        await sendReply(result + signature);
-        
-        if (result.includes('✅')) {
-            await message.react('✅');
-        } else {
-            await message.react('❌');
-        }
-    } catch (err) {
-        await sendReply("❌ وقع مشكل تقني داخلي أثناء معالجة الطلب." + signature);
-        await message.react('❌');
-    }
-    return;
-}
-    
+        // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---    
     
     
     
