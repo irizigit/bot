@@ -441,7 +441,31 @@ if (content.startsWith('!فحص')) {
         return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
     }
 
-    const [_, apogee, cin, birth] = args;
+    if (content.startsWith('!فحص')) {
+    // Récupérer les arguments sans la commande '!فحص'
+    const args = content.split(' ').slice(1);
+    
+    if (args.length < 3) {
+        return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
+    }
+
+    let apogee = "", cin = "", birth = "";
+
+    // Détection automatique et intelligente des champs
+    args.forEach(arg => {
+        if (arg.includes('-') || arg.includes('/')) {
+            birth = arg; // La date contient des tirets (-) ou des slashs (/)
+        } else if (/^[a-zA-Z]/.test(arg)) {
+            cin = arg.toUpperCase(); // Le CIN commence toujours par des lettres
+        } else if (/^\d+$/.test(arg)) {
+            apogee = arg; // Le numéro Apogée ne contient que des chiffres
+        }
+    });
+
+    // Vérification si toutes les données ont bien été reconnues
+    if (!apogee || !cin || !birth) {
+         return sendReply(`⚠️ *تأكد من إدخال المعلومات بشكل صحيح:* \n- رقم الأبوجي (أرقام فقط)\n- رقم البطاقة الوطنية (حروف وأرقام)\n- تاريخ الازدياد (YYYY-MM-DD)${signature}`);
+    }
     
     await message.react('⏳');
     await sendReply('⏳ *جاري الاتصال بموقع الكلية وجلب بياناتك...* المرجو الانتظار.');
@@ -449,14 +473,23 @@ if (content.startsWith('!فحص')) {
     try {
         const result = await getStudentInfo(apogee, cin, birth);
         await sendReply(result + signature);
-        await message.react('✅');
+        
+        if (result.includes('✅')) {
+            await message.react('✅');
+        } else {
+            await message.react('❌');
+        }
     } catch (err) {
-        await sendReply("❌ وقع مشكل تقني أثناء معالجة الطلب." + signature);
+        await sendReply("❌ وقع مشكل تقني داخلي أثناء معالجة الطلب." + signature);
         await message.react('❌');
     }
     return;
 }
-        // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
+    
+    
+    
+    
+    // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
         const directDownloadMatch = content.match(/^irizi(\d+)$/i);
         if (directDownloadMatch) {
             const fileId = parseInt(directDownloadMatch[1]);
