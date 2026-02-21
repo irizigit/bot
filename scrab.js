@@ -1,4 +1,6 @@
 const puppeteer = require('puppeteer');
+const path = require('path');
+const fs = require('fs');
 
 async function getStudentInfo(apogee, cin, birthDate) {
     const browser = await puppeteer.launch({
@@ -13,61 +15,77 @@ async function getStudentInfo(apogee, cin, birthDate) {
     });
 
     const page = await browser.newPage();
+    // درنا شاشة عريضة باش السكرين شوت يجي فيها الجدول كامل
+    await page.setViewport({ width: 1280, height: 1024 }); 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    // 🚀 ميزة تسريع التصفح: منع تحميل الصور والملفات الثقيلة (CSS/Fonts)
+    // تسريع المتصفح مع السماح لـ CSS باش يجي الجدول مقاد
     await page.setRequestInterception(true);
     page.on('request', (request) => {
-        if (['image', 'stylesheet', 'font', 'media'].includes(request.resourceType())) {
-            request.abort(); // حبس هاد الملفات باش الموقع يزرب
+        if (['image', 'media', 'font'].includes(request.resourceType())) {
+            request.abort();
         } else {
-            request.continue(); // خلي غير النصوص والسكربتات الضرورية
+            request.continue(); 
         }
     });
 
     try {
-        // الدخول للموقع بسرعة (domcontentloaded أسرع بكثير من networkidle2)
-        // زدنا الوقت لـ 60 ثانية كحد أقصى للحيطة والحذر
         await page.goto('https://web.flshbm.ma/', { waitUntil: 'domcontentloaded', timeout: 60000 });
-
-        // الانتظار حتى تظهر خانة الأبوجي
         await page.waitForSelector('#apogee', { timeout: 20000 });
 
-        // إدخال البيانات
-        await page.type('#apogee', apogee, { delay: 30 });
-        await page.type('#cin', cin, { delay: 30 });
-        await page.type('#date_naissance', birthDate, { delay: 30 });
+        await page.type('#apogee', apogee, { delay: 10 });
+        await page.type('#cin', cin, { delay: 10 });
+        await page.type('#date_naissance', birthDate, { delay: 10 });
 
-        // النقر على الزر والانتظار حتى تحميل صفحة النتيجة بسرعة
         await Promise.all([
             page.click('button'),
-            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => console.log("تجاوزنا وقت الانتظار، جاري الفحص..."))
+            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {})
         ]);
 
-        // انتظار إضافي خفيف للتأكد أن النتيجة ظهرت
         await new Promise(r => setTimeout(r, 2000));
 
-        // استخراج النتيجة
-        const resultText = await page.evaluate(() => {
-            const card = document.querySelector('.card-body') || document.querySelector('main') || document.body;
-            // كنحاولو نمسحو الفراغات الزايدة باش يجي الميساج نقي
-            return card ? card.innerText.trim().replace(/\n{3,}/g, '\n\n') : null;
+        // التأكد من أن الدخول نجح
+        const isError = await page.evaluate(() => {
+            return document.body.innerText.includes('خطأ') || document.body.innerText.includes('incorrectes');
         });
 
-        await browser.close();
-        
-        if (!resultText || resultText.includes("خطأ")) {
-            return "❌ المعلومات المدخلة غير صحيحة، أو لا يوجد سجل لهذا الطالب.";
+        if (isError) {
+            await browser.close();
+            return { success: false, text: "❌ المعلومات المدخلة غير صحيحة." };
         }
 
-        return `✅ *نتائج الفحص:* \n\n${resultText}`;
+        // 🎯 البحث عن زر "Résultats" والضغط عليه
+        const clicked = await page.evaluate(() => {
+            const elements = Array.from(document.querySelectorAll('a, button, div.card'));
+            // كنقلبو على أي حاجة مكتوب فيها Résultats
+            const resBtn = elements.find(el => el.innerText && el.innerText.includes('Résultats'));
+            if (resBtn) {
+                resBtn.click();
+                return true;
+            }
+            return false;
+        });
+
+        if (!clicked) {
+            await browser.close();
+            return { success: false, text: "❌ تم الدخول بنجاح، لكن لم أتمكن من العثور على قسم 'النتائج'." };
+        }
+
+        // انتظار تحميل صفحة النقط
+        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => console.log("AJAX Load"));
+        await new Promise(r => setTimeout(r, 4000)); // نتسناو الجدول يترسم مزيان
+
+        // 📸 أخذ سكرين شوت للصفحة ديال النقط
+        const screenshotPath = path.join(__dirname, `results_${apogee}.png`);
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+
+        await browser.close();
+        return { success: true, path: screenshotPath };
 
     } catch (error) {
         console.error('Scraping Error:', error.message);
         await browser.close();
-        
-        // رسالة الخطأ للمستخدم
-        return `❌ حدث خطأ بسبب بطء أو توقف موقع الكلية.\n(السبب: ${error.message})`;
+        return { success: false, text: `❌ حدث خطأ أثناء جلب النتائج: ${error.message}` };
     }
 }
 
