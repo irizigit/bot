@@ -19,55 +19,36 @@ async function getStudentInfo(apogee, cin, birthDate) {
         // الدخول للموقع
         await page.goto('https://web.flshbm.ma/', { waitUntil: 'networkidle2', timeout: 45000 });
         
-        // الانتظار 4 ثواني للتأكد من تحميل كل السكريبتات في الموقع
-        await new Promise(r => setTimeout(r, 4000));
+        // نتسناو 6 ثواني باش نتأكدو أن كلشي تحمل
+        await new Promise(r => setTimeout(r, 6000));
 
-        // طريقة ذكية للبحث عن الخانات وتعبئتها وتخطي مشكل الـ Selector
-        const isFormSubmitted = await page.evaluate((ap, c, bd) => {
-            // محاولة إيجاد الخانات بالاسم أو بالنوع كبديل
-            let apogeeInput = document.querySelector('input[name="apogee"]') || document.querySelector('input[placeholder*="Apogee" i]') || document.querySelectorAll('input[type="text"]')[0];
-            let cinInput = document.querySelector('input[name="cin"]') || document.querySelector('input[placeholder*="CIN" i]') || document.querySelectorAll('input[type="text"]')[1];
-            let dateInput = document.querySelector('input[name="date_naissance"]') || document.querySelector('input[type="date"]') || document.querySelectorAll('input')[2]; // غالبا الخانة الثالثة
-            let submitBtn = document.querySelector('button[type="submit"]') || document.querySelector('input[type="submit"]') || document.querySelector('.btn');
+        // فحص الصفحة وجلب جميع الخانات المتوفرة
+        const pageInfo = await page.evaluate(() => {
+            const inputs = document.querySelectorAll('input');
+            let info = `عدد الخانات (Inputs) اللي لقيت فالموقع: ${inputs.length}\n\n`;
+            
+            inputs.forEach((inp, index) => {
+                info += `[${index + 1}] Type: "${inp.type}" | Name: "${inp.name}" | ID: "${inp.id}" | Placeholder: "${inp.placeholder}"\n`;
+            });
+            
+            // فحص واش كاين شي Iframe (إطار داخلي)
+            const iframes = document.querySelectorAll('iframe');
+            info += `\nعدد الإطارات (iframes): ${iframes.length}`;
+            
+            // فحص الأزرار
+            const buttons = document.querySelectorAll('button');
+            info += `\nعدد الأزرار (Buttons): ${buttons.length}`;
 
-            if (apogeeInput && cinInput && dateInput && submitBtn) {
-                apogeeInput.value = ap;
-                cinInput.value = c;
-                dateInput.value = bd;
-                submitBtn.click();
-                return true;
-            }
-            return false; // لم يتم العثور على الخانات
-        }, apogee, cin, birthDate);
-
-        if (!isFormSubmitted) {
-            await browser.close();
-            return "❌ عذراً، لم أتمكن من العثور على خانات التسجيل في الموقع. قد يكون الموقع تحت الصيانة أو تم تغيير تصميمه.";
-        }
-
-        // انتظار تحميل صفحة النتيجة بعد الضغط على الزر
-        await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 });
-
-        // استخراج النتيجة
-        const resultText = await page.evaluate(() => {
-            const card = document.querySelector('.card-body') || document.querySelector('main') || document.body;
-            return card ? card.innerText.trim() : "لا توجد بيانات";
+            return info;
         });
 
         await browser.close();
-        
-        if (!resultText || resultText.includes("خطأ")) {
-            return "❌ المعلومات المدخلة غير صحيحة أو لا يوجد سجل لهذا الطالب.";
-        }
-
-        return `✅ *نتائج الفحص:* \n\n${resultText}`;
+        return `🔍 *تقرير فحص الموقع:*\n\n${pageInfo}`;
 
     } catch (error) {
         console.error('Scraping Error:', error.message);
         await browser.close();
-        
-        // إرجاع رسالة نصية عادية توضح المشكل بدون كائنات (Objects)
-        return `❌ حدث خطأ أثناء الاتصال بالموقع.\nالسبب: ${error.message}`;
+        return `❌ حدث خطأ أثناء الاتصال: ${error.message}`;
     }
 }
 
