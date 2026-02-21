@@ -13,38 +13,51 @@ async function getStudentInfo(apogee, cin, birthDate) {
     });
 
     const page = await browser.newPage();
-    // إخفاء هوية البوت لكي لا يتم حظره
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
+    // 🚀 ميزة تسريع التصفح: منع تحميل الصور والملفات الثقيلة (CSS/Fonts)
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+        if (['image', 'stylesheet', 'font', 'media'].includes(request.resourceType())) {
+            request.abort(); // حبس هاد الملفات باش الموقع يزرب
+        } else {
+            request.continue(); // خلي غير النصوص والسكربتات الضرورية
+        }
+    });
+
     try {
-        // 1. الدخول للموقع
-        await page.goto('https://web.flshbm.ma/', { waitUntil: 'networkidle2', timeout: 45000 });
+        // الدخول للموقع بسرعة (domcontentloaded أسرع بكثير من networkidle2)
+        // زدنا الوقت لـ 60 ثانية كحد أقصى للحيطة والحذر
+        await page.goto('https://web.flshbm.ma/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-        // 2. الانتظار حتى تظهر خانة الأبوجي (بالاعتماد على الـ ID الصحيح)
-        await page.waitForSelector('#apogee', { timeout: 15000 });
+        // الانتظار حتى تظهر خانة الأبوجي
+        await page.waitForSelector('#apogee', { timeout: 20000 });
 
-        // 3. إدخال البيانات باستخدام الـ IDs الصحيحة التي اكتشفناها
-        await page.type('#apogee', apogee, { delay: 50 });
-        await page.type('#cin', cin, { delay: 50 });
-        await page.type('#date_naissance', birthDate, { delay: 50 });
+        // إدخال البيانات
+        await page.type('#apogee', apogee, { delay: 30 });
+        await page.type('#cin', cin, { delay: 30 });
+        await page.type('#date_naissance', birthDate, { delay: 30 });
 
-        // 4. النقر على الزر (بما أن هناك زراً واحداً فقط سنضغط عليه مباشرة) والانتظار
+        // النقر على الزر والانتظار حتى تحميل صفحة النتيجة بسرعة
         await Promise.all([
             page.click('button'),
-            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 45000 }),
+            page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => console.log("تجاوزنا وقت الانتظار، جاري الفحص..."))
         ]);
 
-        // 5. استخراج النتيجة بعد تسجيل الدخول
+        // انتظار إضافي خفيف للتأكد أن النتيجة ظهرت
+        await new Promise(r => setTimeout(r, 2000));
+
+        // استخراج النتيجة
         const resultText = await page.evaluate(() => {
             const card = document.querySelector('.card-body') || document.querySelector('main') || document.body;
-            return card ? card.innerText.trim() : null;
+            // كنحاولو نمسحو الفراغات الزايدة باش يجي الميساج نقي
+            return card ? card.innerText.trim().replace(/\n{3,}/g, '\n\n') : null;
         });
 
         await browser.close();
         
-        // 6. التحقق من النتيجة
         if (!resultText || resultText.includes("خطأ")) {
-            return "❌ المعلومات المدخلة غير صحيحة أو لا يوجد سجل لهذا الطالب.";
+            return "❌ المعلومات المدخلة غير صحيحة، أو لا يوجد سجل لهذا الطالب.";
         }
 
         return `✅ *نتائج الفحص:* \n\n${resultText}`;
@@ -52,7 +65,9 @@ async function getStudentInfo(apogee, cin, birthDate) {
     } catch (error) {
         console.error('Scraping Error:', error.message);
         await browser.close();
-        return `❌ حدث خطأ أثناء الاتصال بالموقع.\nالسبب: ${error.message}`;
+        
+        // رسالة الخطأ للمستخدم
+        return `❌ حدث خطأ بسبب بطء أو توقف موقع الكلية.\n(السبب: ${error.message})`;
     }
 }
 
