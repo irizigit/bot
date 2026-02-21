@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const PdfPrinter = require('pdfmake');
 const { exec } = require('child_process');
-
+const { getStudentInfo } = require('./scrab.js');
 // --- ربط قاعدة البيانات ---
 const db = require('./database.js');
 
@@ -433,7 +433,29 @@ client.on('message_create', async message => {
                 return await client.sendMessage(replyTo, msgContent, options);
             }
         };
+// أمر فحص معلومات الطالب
+if (content.startsWith('!فحص')) {
+    const args = content.split(' ');
+    // نتوقع: !فحص [apogee] [cin] [birth_date]
+    if (args.length < 4) {
+        return sendReply(`⚠️ *طريقة الاستخدام:* \n!فحص [رقم_الأبوجي] [CIN] [تاريخ_الميلاد]\n\n💡 مثال:\n!فحص 21004455 AB123456 2005-12-14${signature}`);
+    }
 
+    const [_, apogee, cin, birth] = args;
+    
+    await message.react('⏳');
+    await sendReply('⏳ *جاري الاتصال بموقع الكلية وجلب بياناتك...* المرجو الانتظار.');
+
+    try {
+        const result = await getStudentInfo(apogee, cin, birth);
+        await sendReply(result + signature);
+        await message.react('✅');
+    } catch (err) {
+        await sendReply("❌ وقع مشكل تقني أثناء معالجة الطلب." + signature);
+        await message.react('❌');
+    }
+    return;
+}
         // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
         const directDownloadMatch = content.match(/^irizi(\d+)$/i);
         if (directDownloadMatch) {
