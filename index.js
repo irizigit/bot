@@ -5,8 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const PdfPrinter = require('pdfmake');
 const { exec } = require('child_process');
-const { handleStudentCommand } = require('./scrab.js');
-// --- ربط قاعدة البيانات ---
+const { handleStudentCommand, processStudentChoice } = require('./scrab.js');
 const db = require('./database.js');
 
 const client = new Client({
@@ -435,8 +434,9 @@ client.on('message_create', async message => {
         };
 // أمر فحص معلومات الطالب
 // أمر فحص معلومات الطالب
+      // أمر فحص معلومات الطالب
         if (content.startsWith('!فحص')) {
-            await handleStudentCommand(content, message, sendReply, MessageMedia, signature);
+            await handleStudentCommand(content, message, sendReply, updateState, userIdRaw, replyTo, signature);
             return;
         }
         // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---    
