@@ -1,26 +1,34 @@
 require('dotenv').config();
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// كنجبدو المفتاح
-const apiKey = process.env.GEMINI_API_KEY;
+async function checkModels() {
+    const apiKey = process.env.GEMINI_API_KEY;
 
-if (!apiKey) {
-    console.error("❌ الـ API KEY ماكاينش! تأكد من ملف .env");
-    process.exit(1);
-}
+    if (!apiKey) {
+        console.error("❌ الـ API KEY ماكاينش فملف .env");
+        return;
+    }
 
-const genAI = new GoogleGenerativeAI(apiKey);
-
-async function test() {
-    console.log("⏳ جاري الاتصال بجوجل...");
+    console.log("⏳ جاري فحص الموديلات المتاحة للمفتاح ديالك...");
+    
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const result = await model.generateContent("مرحبا، واش كتفهمني؟ جاوبني بالدارجة المغريبة فسطر واحد.");
-        console.log("✅ الذكاء الاصطناعي خدام مزيان! الجواب ديالو:");
-        console.log("🤖:", result.response.text());
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        const data = await response.json();
+
+        if (data.models) {
+            console.log("\n✅ الموديلات اللي مسموح ليك تخدم بيها هي:");
+            data.models.forEach(model => {
+                // غنطبعو غير الموديلات اللي كتدعم إنشاء النصوص
+                if (model.supportedGenerationMethods.includes("generateContent")) {
+                    console.log(`- ${model.name}`);
+                }
+            });
+            console.log("\n💡 (نسخ واحد من هاد السميات وقولها ليا باش نخدمو بيه)");
+        } else {
+            console.error("❌ جوجل رجعات هاد الخطأ:", data);
+        }
     } catch (error) {
-        console.error("❌ وقع خطأ:", error.message);
+        console.error("❌ فشل الاتصال بجوجل:", error.message);
     }
 }
 
-test();
+checkModels();
