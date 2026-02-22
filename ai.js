@@ -6,8 +6,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 async function getAIResponse(userMessage, userName, availableLecturesText) {
     try {
         // التعديل هنا: نستخدم الموديل 'gemini-1.5-flash' بشكل مباشر
-     const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash-latest", 
+  const model = genAI.getGenerativeModel({
+    model: "gemini-pro", 
 });
 
         const systemInstruction = `أنت مساعد أكاديمي ذكي ولطيف اسمه "IRIZI Bot"، مبرمج من طرف المطور "IRIZI".
