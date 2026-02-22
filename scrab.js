@@ -21,7 +21,6 @@ async function getStudentData(apogee, cin, birthDate, actionChoice) {
     await page.setViewport({ width: 1280, height: 1024 }); 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    // منع تحميل الصور لتسريع التصفح (مع ترك الـ CSS باش تجي الصورة مقادة)
     await page.setRequestInterception(true);
     page.on('request', (request) => {
         if (['image', 'media', 'font'].includes(request.resourceType())) {
@@ -55,15 +54,14 @@ async function getStudentData(apogee, cin, birthDate, actionChoice) {
             return { success: false, text: "❌ المعلومات المدخلة غير صحيحة." };
         }
 
-        // 🎯 تحديد الزر اللي غيكليكي عليه بناءً على اختيار المستخدم
         const clicked = await page.evaluate((choice) => {
             const elements = Array.from(document.querySelectorAll('a, button, div.card'));
             let targetWord = '';
             
-            if (choice === '1') targetWord = 'Résultats';          // النقط
-            else if (choice === '2') targetWord = 'Calendrier';    // الامتحانات
-            else if (choice === '3') targetWord = 'Affichage';     // الإعلانات
-            else if (choice === '4') targetWord = 'Absence';       // الغياب
+            if (choice === '1') targetWord = 'Résultats';
+            else if (choice === '2') targetWord = 'Calendrier';
+            else if (choice === '3') targetWord = 'Affichage';
+            else if (choice === '4') targetWord = 'Absence';
 
             const targetBtn = elements.find(el => el.innerText && el.innerText.includes(targetWord));
             if (targetBtn) {
@@ -95,7 +93,7 @@ async function getStudentData(apogee, cin, birthDate, actionChoice) {
 }
 
 // ==========================================
-// 2. دالة استقبال الأمر (!فحص) وعرض القائمة
+// 2. دالة استقبال الأمر (!فحص) وعرض القائمة + التنبيه الأمني
 // ==========================================
 async function handleStudentCommand(content, message, sendReply, updateState, userIdRaw, replyTo, signature) {
     const args = content.split(' ').slice(1);
@@ -120,20 +118,28 @@ async function handleStudentCommand(content, message, sendReply, updateState, us
          return sendReply(`⚠️ *تأكد من إدخال المعلومات بشكل صحيح:* \n- رقم الأبوجي (أرقام فقط)\n- رقم البطاقة الوطنية (حروف وأرقام)\n- تاريخ الازدياد (YYYY-MM-DD)${signature}`);
     }
     
-    // حفظ المعلومات في الذاكرة المؤقتة (State) باش نخدمو بيها من بعد
+    // حفظ المعلومات في الذاكرة المؤقتة
     updateState(userIdRaw, replyTo, { 
         step: 'student_menu_choice', 
         credentials: { apogee, cin, birth } 
     });
 
-    // إرسال القائمة للمستخدم
-    const menuMsg = `✅ *تم حفظ معلوماتك بنجاح!*\n━━━━━━━━━━━━━━━━━━\n\nشنو بغيتي تشوف؟ (أرسل رقم الخيار):\n\n1️⃣ 📊 النقط والنتائج (Résultats)\n2️⃣ 📅 جدول الامتحانات / الاستدعاء\n3️⃣ 📌 سبورة الإعلانات (Affichage)\n4️⃣ 📝 تبرير الغياب (Absence)\n\n💡 _أرسل "إلغاء" للخروج من هذه القائمة._${signature}`;
+    // إرسال القائمة مع التنبيه الأمني الواضح لحذف الرسالة
+    const menuMsg = `✅ *تم حفظ معلوماتك بنجاح!*\n` + 
+                    `🛡️ *هام للخصوصية:* المرجو حذف رسالتك السابقة فوراً (اختر: الحذف لدى الجميع / Delete for everyone) لحماية بياناتك.\n` +
+                    `━━━━━━━━━━━━━━━━━━\n\n` +
+                    `شنو بغيتي تشوف؟ (أرسل رقم الخيار):\n\n` +
+                    `1️⃣ 📊 النقط والنتائج (Résultats)\n` +
+                    `2️⃣ 📅 جدول الامتحانات / الاستدعاء\n` +
+                    `3️⃣ 📌 سبورة الإعلانات (Affichage)\n` +
+                    `4️⃣ 📝 تبرير الغياب (Absence)\n\n` +
+                    `💡 _أرسل "إلغاء" للخروج من هذه القائمة._${signature}`;
     
     await sendReply(menuMsg);
 }
 
 // ==========================================
-// 3. دالة معالجة اختيار المستخدم من القائمة
+// 3. دالة معالجة اختيار المستخدم + إرسال الصورة لمرة واحدة
 // ==========================================
 async function processStudentChoice(content, message, sendReply, state, clearState, userIdRaw, MessageMedia, signature) {
     const choice = content.trim();
@@ -145,7 +151,6 @@ async function processStudentChoice(content, message, sendReply, state, clearSta
     await message.react('⏳');
     await sendReply('⏳ *جاري الاتصال بالموقع وجلب البيانات المطلوبة...* 🚀');
 
-    // استرجاع المعلومات من الذاكرة
     const { apogee, cin, birth } = state.credentials;
 
     try {
@@ -154,13 +159,18 @@ async function processStudentChoice(content, message, sendReply, state, clearSta
         if (result.success && result.path) {
             const media = MessageMedia.fromFilePath(result.path);
             
-            let captionText = "✅ *تمت العملية بنجاح!* تفضل البيانات المطلوبة:";
-            if(choice === '1') captionText = "📊 *إليك النقط والنتائج الخاصة بك:*";
-            if(choice === '2') captionText = "📅 *إليك جدول الامتحانات / الاستدعاء:*";
+            let captionText = "✅ *تمت العملية بنجاح!* تفضل البيانات المطلوبة (صورة للعرض مرة واحدة):";
+            if(choice === '1') captionText = "📊 *إليك النقط والنتائج الخاصة بك (للعرض مرة واحدة):*";
+            if(choice === '2') captionText = "📅 *إليك جدول الامتحانات / الاستدعاء (للعرض مرة واحدة):*";
             
-            await sendReply(media, { caption: `${captionText}${signature}` });
+            // 🛡️ السطر السحري: إرسال الصورة بخاصية المشاهدة لمرة واحدة
+            await sendReply(media, { 
+                caption: `${captionText}${signature}`,
+                isViewOnce: true 
+            });
             await message.react('✅');
             
+            // حذف الصورة من السيرفر فور إرسالها للواتساب
             if (fs.existsSync(result.path)) {
                 fs.unlinkSync(result.path);
             }
@@ -173,7 +183,6 @@ async function processStudentChoice(content, message, sendReply, state, clearSta
         await message.react('❌');
     }
     
-    // مسح الحالة بعد الانتهاء
     clearState(userIdRaw);
 }
 
