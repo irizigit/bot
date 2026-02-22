@@ -1,13 +1,13 @@
-require('dotenv').config(); // هاد السطر ضروري باش يقرا الـ API KEY
+require('dotenv').config(); 
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 async function getAIResponse(userMessage, userName, availableLecturesText) {
     try {
-        // الموديل الصحيح والأسرع حالياً
+        // هاهو الموديل الجديد ديالك اللي كاين فاللائحة
         const model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash", 
+            model: "gemini-2.5-flash", 
         });
 
         const systemInstruction = `أنت مساعد أكاديمي ذكي ولطيف اسمه "IRIZI Bot"، مبرمج من طرف المطور "IRIZI".
