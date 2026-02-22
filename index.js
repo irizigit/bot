@@ -7,7 +7,7 @@ const PdfPrinter = require('pdfmake');
 const { exec } = require('child_process');
 const { handleStudentCommand, processStudentChoice } = require('./scrab.js');
 const db = require('./database.js');
-
+const { getAIResponse } = require('./ai.js');
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "whatsapp-bot" }),
     puppeteer: {
@@ -827,6 +827,46 @@ client.on('message_create', async message => {
             return;
         }
 
+
+// ============================================
+        // نظام الذكاء الاصطناعي (AI) التفاعلي
+        // ============================================
+        
+        // استثناء: ما نجاوبوش على الرسائل اللي فيهم أوامر ديجا دازت (!فحص الخ)
+        // وما نجاوبوش على التصاور والملفات اللي مافيهم نص
+        if (!content || content.startsWith('!') || (userState.has(userIdRaw))) {
+            return;
+        }
+
+        try {
+            // 1. جلب ملخص للمحاضرات المتوفرة باش نعطيوها للـ AI
+            let availableLecturesText = "لا توجد ملفات حاليا.";
+            const res = await db.query('SELECT id, type, subject_name, professor_name FROM lectures ORDER BY id DESC LIMIT 50');
+            
+            if (res.rows.length > 0) {
+                availableLecturesText = res.rows.map(r => 
+                    `- كود: irizi${r.id} | النوع: ${r.type} | المادة: ${r.subject_name} | الأستاذ: ${r.professor_name}`
+                ).join('\n');
+            }
+
+            // 2. إرسال رسالة الطالب + اللائحة للذكاء الاصطناعي
+            const aiReply = await getAIResponse(content, senderName, availableLecturesText);
+
+            // 3. التحقق من جواب الذكاء الاصطناعي (هل يجب التجاهل؟)
+            if (aiReply && !aiReply.includes('IGNORE')) {
+                // البوت لقى بلي الطالب محتاج مساعدة، غيدير رياكت ويجاوب
+                await message.react('🤖');
+                await sendReply(aiReply + signature);
+            }
+
+        } catch (error) {
+            console.error("خطأ في نظام الذكاء الاصطناعي المدمج:", error);
+        }
+
+
+
+
+        
         if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
             if (!isGroupMessage) return; 
             await message.react('📖');
