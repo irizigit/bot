@@ -211,7 +211,7 @@ function saveSubjects() { try { const list = Array.from(subjects.entries()).map(
 loadBlacklist(); loadSections(); loadClasses(); loadGroups(); loadProfessors(); loadSubjects();
 
 // ============================================
-// دوال PDF (محدثة لدعم كود التحميل المباشر)
+// دوال PDF
 // ============================================
 function checkFonts() {
     const fontsDir = path.join(__dirname, 'fonts');
@@ -225,6 +225,37 @@ function checkFonts() {
 function reverseArabicText(text) {
     if (!text) return '';
     return text.split(' ').reverse().join(' ');
+}
+
+// ============================================
+// دالة استخراج البيانات من اسم المجموعة (جديدة)
+// ============================================
+function parseGroupMetadata(groupName) {
+    let sectionName = '';
+    let className = '';
+    let groupNumber = '';
+
+    // 1. استخراج الشعبة (النص بين "شعبة" و "الفصل")
+    const sectionMatch = groupName.match(/شعبة\s+(.+?)\s+الفصل/i);
+    if (sectionMatch) {
+        sectionName = sectionMatch[1].trim();
+    }
+
+    // 2. استخراج الفصل (مطابقة مع القائمة الثابتة)
+    for (const c of FIXED_CLASSES) {
+        if (groupName.includes(c)) {
+            className = c;
+            break;
+        }
+    }
+
+    // 3. استخراج رقم المجموعة (النص بعد "مجموعة" أو "مجموعات")
+    const groupMatch = groupName.match(/مجموع[ةه]ات?\s+(.+)/i);
+    if (groupMatch) {
+        groupNumber = groupMatch[1].trim();
+    }
+
+    return { sectionName, className, groupNumber };
 }
 
 async function generateLecturesTablePDF(lecturesData) {
@@ -243,7 +274,6 @@ async function generateLecturesTablePDF(lecturesData) {
             };
             const printer = new PdfPrinter(fonts);
 
-            // بدون فلترة - عرض جميع البيانات الموجودة في قاعدة البيانات
             const lectures = lecturesData.filter(item => item.type === 'محاضرة');
             const summaries = lecturesData.filter(item => item.type === 'ملخص');
             const exams = lecturesData.filter(item => item.type === 'امتحان');
@@ -409,6 +439,15 @@ client.on('message_create', async message => {
     try {
         if (!isBotReady || !message) return;
 
+        // دالة آمنة لوضع الإيموجي لتفادي خطأ Reaction send error
+        const safeReact = async (emoji) => {
+            try {
+                await message.react(emoji);
+            } catch (e) {
+                // تجاهل الخطأ بصمت لتفادي تلوث الشاشة
+            }
+        };
+
         const isGroupMessage = message.from.includes('@g.us') || message.to.includes('@g.us');
         const currentGroupId = isGroupMessage ? (message.from.includes('@g.us') ? message.from : message.to) : null;
         
@@ -432,24 +471,20 @@ client.on('message_create', async message => {
                 return await client.sendMessage(replyTo, msgContent, options);
             }
         };
-// أمر فحص معلومات الطالب
-// أمر فحص معلومات الطالب
-      // أمر فحص معلومات الطالب
+
+        // أمر فحص معلومات الطالب
         if (content.startsWith('!فحص')) {
             await handleStudentCommand(content, message, sendReply, updateState, userIdRaw, replyTo, signature);
             return;
         }
-        // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---    
-    
-    
-    
-    // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
+
+        // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
         const directDownloadMatch = content.match(/^irizi(\d+)$/i);
         if (directDownloadMatch) {
             const fileId = parseInt(directDownloadMatch[1]);
             
             try {
-                await message.react('⏳');
+                await safeReact('⏳');
                 const res = await db.query('SELECT * FROM lectures WHERE id = $1', [fileId]);
                 
                 if (res.rows.length > 0) {
@@ -465,19 +500,19 @@ client.on('message_create', async message => {
                         await sendReply(media, { 
                             caption: `📥 *تم جلب ${fileData.type} بنجاح!*\n📖 المادة: ${fileData.subject_name}\n${fileData.type === 'امتحان' ? '📅 السنة/الدورة' : '📝 الرقم'}: ${fileData.lecture_number}\n👨‍🏫 الأستاذ: ${fileData.professor_name}\n🏫 الفصل: ${fileData.class_name}${signature}` 
                         });
-                        await message.react('✅');
+                        await safeReact('✅');
                     } else {
                         await sendReply(`❌ *عذراً، لم أتمكن من استرجاع الملف.* قد يكون تم حذفه من مجموعة الأرشيف.${signature}`);
-                        await message.react('❌');
+                        await safeReact('❌');
                     }
                 } else {
                     await sendReply(`⚠️ *عذراً!* الكود غير صحيح أو أن الملف تم حذفه من قاعدة البيانات.${signature}`);
-                    await message.react('❌');
+                    await safeReact('❌');
                 }
             } catch (err) {
                 console.error('خطأ في التحميل المباشر:', err);
                 await sendReply(`❌ *حدث خطأ أثناء جلب الملف!* يرجى المحاولة لاحقاً.${signature}`);
-                await message.react('❌');
+                await safeReact('❌');
             }
             return;
         }
@@ -496,26 +531,26 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
+            if (!isSenderAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من طرد الأعضاء.${signature}`); }
 
-            if (!message.hasQuotedMsg) { await message.react('⚠️'); return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`); }
+            if (!message.hasQuotedMsg) { await safeReact('⚠️'); return await sendReply(`⚠️ *طريقة الاستخدام:* قم بعمل "رد/Reply" على أي رسالة للشخص المراد طرده، واكتب الأمر \n*!طرد*${signature}`); }
 
             try {
-                await message.react('⏳');
+                await safeReact('⏳');
                 const quotedMsg = await message.getQuotedMessage();
                 const targetId = quotedMsg.author || quotedMsg.from;
                 const cleanTargetId = getCleanNumber(targetId);
                 
                 if (cleanTargetId === botNumber || cleanTargetId === getCleanNumber(OWNER_ID) || cleanTargetId === getCleanNumber(SECOND_OWNER)) {
-                    await message.react('🛡️');
+                    await safeReact('🛡️');
                     return await sendReply(`❌ *عذراً، لا يمكنني طرد هذا الرقم!* 🛡️${signature}`);
                 }
 
                 await chat.removeParticipants([targetId]);
-                await message.react('✅');
+                await safeReact('✅');
                 await sendReply(`✅ *تم طرد العضو بنجاح!* 🧹${signature}`);
-            } catch(e) { await message.react('❌'); await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); }
+            } catch(e) { await safeReact('❌'); await sendReply(`❌ *حدث خطأ أثناء الطرد.* تأكد من أنني مشرف (Admin) وأن الشخص لا يزال في المجموعة.${signature}`); }
             return;
         }
 
@@ -538,14 +573,14 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من التحكم بالمجموعة.${signature}`); }
+            if (!isSenderAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن تجعلني مشرفاً (Admin) أولاً لأتمكن من التحكم بالمجموعة.${signature}`); }
 
             try {
                 const isLock = !!lockMatch;
                 const timeArg = isLock ? lockMatch[2] : unlockMatch[2];
 
-                await message.react(isLock ? '🔒' : '🔓');
+                await safeReact(isLock ? '🔒' : '🔓');
                 await chat.setMessagesAdminsOnly(isLock);
 
                 if (isLock) {
@@ -587,7 +622,7 @@ client.on('message_create', async message => {
                 }
             } catch (error) { 
                 console.error('خطأ في القفل/الفتح:', error);
-                await message.react('❌'); 
+                await safeReact('❌'); 
                 await sendReply(`❌ *حدث خطأ أثناء التنفيذ!* تحقق من الكونسول للمزيد من التفاصيل.${signature}`); 
             }
             return;
@@ -658,7 +693,7 @@ client.on('message_create', async message => {
             }
 
             if (cancelled) {
-                await message.react('✅');
+                await safeReact('✅');
                 await sendReply(`✅ *تم إلغاء الجدولة بنجاح!*\nلم يعد هناك قفل/فتح تلقائي.${signature}`);
             } else {
                 await sendReply(`⚠️ *لا يوجد جدولة نشطة* لإلغائها.${signature}`);
@@ -676,12 +711,12 @@ client.on('message_create', async message => {
 
             if (isBotGroupAdmin) {
                 try {
-                    await message.react('🔗');
+                    await safeReact('🔗');
                     const inviteCode = await chat.getInviteCode();
                     const inviteLink = `https://chat.whatsapp.com/${inviteCode}`;
                     await sendReply(`🔗 *رابط الانضمام للمجموعة:*\n\n${inviteLink}\n\n💡 _شارك الرابط مع زملائك للانضمام!_${signature}`);
-                } catch (error) { await message.react('❌'); await sendReply(`❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة.${signature}`); }
-            } else { await message.react('⚠️'); await sendReply(`⚠️ *عذراً!* يجب على إدارة المجموعة أن تجعل البوت مشرفاً أولاً.${signature}`); }
+                } catch (error) { await safeReact('❌'); await sendReply(`❌ *حدث خطأ!* تأكد أن خاصية دعوة عبر الرابط مفعلة.${signature}`); }
+            } else { await safeReact('⚠️'); await sendReply(`⚠️ *عذراً!* يجب على إدارة المجموعة أن تجعل البوت مشرفاً أولاً.${signature}`); }
             return;
         }
 
@@ -698,11 +733,11 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); }
+            if (!isSenderAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من التثبيت.${signature}`); }
 
             if (!message.hasQuotedMsg) { 
-                await message.react('❓'); 
+                await safeReact('❓'); 
                 return await sendReply(
                     `📌 *كيفية استخدام أمر التثبيت:*\n\n` +
                     `1️⃣ اضغط مطولاً على الرسالة المراد تثبيتها\n` +
@@ -714,17 +749,17 @@ client.on('message_create', async message => {
             }
 
             try {
-                await message.react('⏳');
+                await safeReact('⏳');
                 const quotedMsg = await message.getQuotedMessage();
 
                 if (!quotedMsg) {
-                    await message.react('❌');
+                    await safeReact('❌');
                     return await sendReply(`❌ *تعذر العثور على الرسالة!*\nقد تكون الرسالة قديمة جداً أو تم حذفها.${signature}`);
                 }
 
                 await quotedMsg.pin(24 * 60 * 60);
 
-                await message.react('📌');
+                await safeReact('📌');
 
                 let pinInfo = `✅ *تم تثبيت الرسالة بنجاح!* 📌\n\n`;
                 pinInfo += `👤 *المرسل الأصلي:* ${quotedMsg.author ? quotedMsg.author.split('@')[0] : 'غير معروف'}\n`;
@@ -736,7 +771,7 @@ client.on('message_create', async message => {
 
             } catch(e) { 
                 console.error('خطأ في التثبيت:', e);
-                await message.react('❌'); 
+                await safeReact('❌'); 
                 let errorMsg = `❌ *حدث خطأ أثناء التثبيت!*\n\n`;
                 if (e.message && e.message.includes('not authorized')) {
                     errorMsg += `⚠️ *السبب:* البوت لا يملك صلاحية التثبيت.\nتأكد من جعل البوت مشرفاً في المجموعة.`;
@@ -763,11 +798,11 @@ client.on('message_create', async message => {
                 }
             }
 
-            if (!isSenderAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
-            if (!isBotGroupAdmin) { await message.react('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من إلغاء التثبيت.${signature}`); }
+            if (!isSenderAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* هذا الأمر مخصص لمشرفي المجموعة فقط.${signature}`); }
+            if (!isBotGroupAdmin) { await safeReact('⚠️'); return await sendReply(`⚠️ *عذراً!* يجب أن أكون مشرفاً لأتمكن من إلغاء التثبيت.${signature}`); }
 
             if (!message.hasQuotedMsg) { 
-                await message.react('❓'); 
+                await safeReact('❓'); 
                 return await sendReply(
                     `📌 *كيفية إلغاء التثبيت:*\n\n` +
                     `1️⃣ اضغط مطولاً على الرسالة المثبتة\n` +
@@ -778,28 +813,28 @@ client.on('message_create', async message => {
             }
 
             try {
-                await message.react('⏳');
+                await safeReact('⏳');
                 const quotedMsg = await message.getQuotedMessage();
 
                 if (!quotedMsg) {
-                    await message.react('❌');
+                    await safeReact('❌');
                     return await sendReply(`❌ *تعذر العثور على الرسالة!*${signature}`);
                 }
 
                 await quotedMsg.unpin();
-                await message.react('✅');
+                await safeReact('✅');
                 await sendReply(`✅ *تم إلغاء تثبيت الرسالة بنجاح!* 🗑️${signature}`);
 
             } catch(e) { 
                 console.error('خطأ في إلغاء التثبيت:', e);
-                await message.react('❌'); 
+                await safeReact('❌'); 
                 await sendReply(`❌ *حدث خطأ أثناء إلغاء التثبيت!*\nقد لا تكون هذه الرسالة مثبتة أصلاً.${signature}`); 
             }
             return;
         }
 
         if (content === '!start' || content === '!الأوامر' || content === '!الاوامر') {
-            await message.react('🤖');
+            await safeReact('🤖');
             const helpMsg = `🤖 *مرحباً بك في البوت الأكاديمي!* 📚\n\n` +
                             `إليك قائمة بجميع الأوامر المتاحة مع شرحها:\n\n` +
                             `📌 *أوامر عامة للطلاب:*\n` +
@@ -827,49 +862,18 @@ client.on('message_create', async message => {
             return;
         }
 
-
-// ============================================
-        // نظام الذكاء الاصطناعي (AI) التفاعلي
-        // ============================================
-        
-        // استثناء: ما نجاوبوش على الرسائل اللي فيهم أوامر ديجا دازت (!فحص الخ)
-        // وما نجاوبوش على التصاور والملفات اللي مافيهم نص
-        if (!content || content.startsWith('!') || (userState.has(userIdRaw))) {
+        if (!isGroupMessage && isOwner && content === '!تحديث') {
+            await safeReact('🔄');
+            await sendReply(`🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.${signature}`);
+            exec('pm2 restart all', async (error) => {
+                if (error) await sendReply(`⚠️ *حدث خطأ أثناء التحديث:*\n${error.message}${signature}`);
+            });
             return;
         }
 
-        try {
-            // 1. جلب ملخص للمحاضرات المتوفرة باش نعطيوها للـ AI
-            let availableLecturesText = "لا توجد ملفات حاليا.";
-            const res = await db.query('SELECT id, type, subject_name, professor_name FROM lectures ORDER BY id DESC LIMIT 50');
-            
-            if (res.rows.length > 0) {
-                availableLecturesText = res.rows.map(r => 
-                    `- كود: irizi${r.id} | النوع: ${r.type} | المادة: ${r.subject_name} | الأستاذ: ${r.professor_name}`
-                ).join('\n');
-            }
-
-            // 2. إرسال رسالة الطالب + اللائحة للذكاء الاصطناعي
-            const aiReply = await getAIResponse(content, senderName, availableLecturesText);
-
-            // 3. التحقق من جواب الذكاء الاصطناعي (هل يجب التجاهل؟)
-            if (aiReply && !aiReply.includes('IGNORE')) {
-                // البوت لقى بلي الطالب محتاج مساعدة، غيدير رياكت ويجاوب
-                await message.react('🤖');
-                await sendReply(aiReply + signature);
-            }
-
-        } catch (error) {
-            console.error("خطأ في نظام الذكاء الاصطناعي المدمج:", error);
-        }
-
-
-
-
-        
         if (content === '!دليل' || content === '!مساعدة' || content === '!help') {
             if (!isGroupMessage) return; 
-            await message.react('📖');
+            await safeReact('📖');
             const pdfPath = path.join(manualDir, 'manual.pdf');
             const videoPath = path.join(manualDir, 'tutorial.mp4');
             let filesSent = false;
@@ -880,25 +884,16 @@ client.on('message_create', async message => {
             return;
         }
 
-        if (!isGroupMessage && isOwner && content === '!تحديث') {
-            await message.react('🔄');
-            await sendReply(`🔄 *جاري سحب التحديثات من GitHub...*\nسيتم إعادة تشغيل البوت تلقائياً خلال ثوانٍ.${signature}`);
-            exec('git pull origin main && pm2 restart all', async (error) => {
-                if (error) await sendReply(`⚠️ *حدث خطأ أثناء التحديث:*\n${error.message}${signature}`);
-            });
-            return;
-        }
-
         if (content === '!جدول_المحاضرات' || content === '!lectures_table') {
             try {
-                await message.react('📊');
+                await safeReact('📊');
                 const res = await db.query('SELECT * FROM lectures ORDER BY id ASC');
                 if (res.rows.length === 0) { await sendReply(`⚠️ *عذراً!* لا توجد بيانات مضافة حتى الآن.${signature}`); return; }
                 const pdfBuffer = await generateLecturesTablePDF(res.rows);
                 const media = new MessageMedia('application/pdf', pdfBuffer.toString('base64'), `جدول.pdf`);
                 await sendReply(media, { caption: `📊 *إليك جدول الأرشيف الشامل محدثاً* ✨\nيمكنك الآن نسخ كود أي ملف من الجدول وإرساله لي مباشرة للتحميل!${signature}` });
-                await message.react('✅');
-            } catch (error) { await sendReply(`❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); await message.react('❌'); }
+                await safeReact('✅');
+            } catch (error) { await sendReply(`❌ *حدث خطأ!* لم أتمكن من إنشاء الجدول، يرجى المحاولة لاحقاً.${signature}`); await safeReact('❌'); }
             return;
         }
 
@@ -923,17 +918,74 @@ client.on('message_create', async message => {
         }
 
         if (!isGroupMessage && isOwner && content === '!إدارة') {
-            await message.react('🛠️');
+            await safeReact('🛠️');
             await sendReply(`🛠️ *لوحة تحكم المدير* 🛠️\n━━━━━━━━━━━━━━━━━━\n\n👥 *الأعضاء والمشرفين:*\n1. ➕ إضافة عضو\n2. ➖ حذف عضو\n3. ⬆️ ترقية عضو\n4. ⬇️ خفض مشرف\n5. 👨‍💻 إضافة مبرمج\n6. ❌ حذف مبرمج\n7. 🧹 تنظيف المجموعة\n\n⚙️ *إدارة المحتوى:*\n8. 📌 تثبيت رسالة\n9. 📊 جدول المحاضرات\n10. 📚 إدارة المحاضرات\n\n🗂️ *إدارة البيانات:*\n11. 🏷️ إدارة الشعب\n12. 🏫 إدارة الفصول\n13. 👥 إدارة الأفواج\n14. 👨‍🏫 إدارة الأساتذة\n15. 📖 إدارة المواد\n\n📢 *التواصل:*\n16. 🌐 بث لجميع المجموعات\n17. 🎯 بث لمجموعة مخصصة\n\n📖 *دليل الاستخدام (للطلاب):*\n18. 📚 رفع/تحديث كتاب الدليل (PDF)\n19. 🎥 رفع/تحديث فيديو الشرح (MP4)\n\n━━━━━━━━━━━━━━━━━━\n💡 _أرسل رقم الخيار لتنفيذه أو اكتب_ *إلغاء* _للخروج._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'admin_menu', timestamp: Date.now() });
             return;
         }
 
+        // ============================================
+        // تعديل أمر !اضافة_pdf ليدعم الاستخراج التلقائي
+        // ============================================
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
-            await message.react('📄');
-            await sendReply(`📄 *إضافة ملف جديد* 📄\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار نوع الملف الذي تود إضافته:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
+
+            const chat = await message.getChat();
+            const groupName = chat.name;
+            const parsedData = parseGroupMetadata(groupName);
+
+            // محاولة إيجاد ID الشعبة من الاسم المستخرج
+            let sectionId = null;
+            let sectionName = null;
+            if (parsedData.sectionName) {
+                for (const [id, name] of sections) {
+                    // استخدام includes لتجاوز مشاكل التشكيل البسيطة أو المسافات
+                    if (name === parsedData.sectionName || name.includes(parsedData.sectionName) || parsedData.sectionName.includes(name)) {
+                        sectionId = id;
+                        sectionName = name;
+                        break;
+                    }
+                }
+            }
+
+            // التحقق من اكتمال البيانات المستخرجة
+            if (sectionId && parsedData.className && parsedData.groupNumber) {
+                await safeReact('📄');
+                await sendReply(`📄 *إضافة ملف جديد (وضع تلقائي)* 📄
+━━━━━━━━━━━━━━━━━━
+✅ *تم التعرف على المجموعة:*
+🏷️ الشعبة: ${sectionName}
+🏫 الفصل: ${parsedData.className}
+👥 الفوج: ${parsedData.groupNumber}
+
+يرجى اختيار نوع الملف:
+1️⃣ 📚 محاضرة
+2️⃣ 📝 ملخص
+
+💡 _أرسل الرقم أو اكتب_ *إلغاء*${signature}`);
+                
+                updateState(userIdRaw, replyTo, { 
+                    step: 'select_pdf_type_auto', 
+                    sectionId: sectionId, 
+                    sectionName: sectionName, 
+                    className: parsedData.className, 
+                    groupName: parsedData.groupNumber 
+                });
+                return;
+            }
+
+            // إذا فشل الاستخراج التلقائي، نعود للطريقة اليدوية
+            await safeReact('📄');
+            await sendReply(`📄 *إضافة ملف جديد* 📄
+━━━━━━━━━━━━━━━━━━
+⚠️ *تعذر قراءة بيانات المجموعة تلقائياً.*
+يرجى اختيار نوع الملف الذي تود إضافته:
+
+1️⃣ 📚 محاضرة
+2️⃣ 📝 ملخص
+
+💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'select_pdf_type' });
             return;
         }
@@ -941,7 +993,7 @@ client.on('message_create', async message => {
         if (content === '!تحميل' || content === '!download') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!*${signature}`); return; }
-            await message.react('📥');
+            await safeReact('📥');
             await sendReply(`📥 *تحميل الملفات والامتحانات* 📥\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار النوع الذي تبحث عنه:\n\n1️⃣ 📚 محاضرة\n2️⃣ 📝 ملخص\n3️⃣ 📸 امتحان\n\n💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
             updateState(userIdRaw, replyTo, { step: 'select_pdf_type_for_download' });
             return;
@@ -950,7 +1002,7 @@ client.on('message_create', async message => {
         if (content === '!اضافة_امتحان' || content === '!add exam') {
             if (!isGroupMessage) return;
             if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
-            await message.react('📸');
+            await safeReact('📸');
             let sectionsList = `📸 *إضافة امتحان جديد* 📸\n━━━━━━━━━━━━━━━━━━\nأهلاً بك! يرجى اختيار الشعبة الخاصة بهذا الامتحان:\n\n`; 
             let index = 1;
             for (const [id, name] of sections) { sectionsList += `${index++}. ${name}\n`; }
@@ -966,12 +1018,13 @@ client.on('message_create', async message => {
             const state = userState.get(userIdRaw);
 
             if (content.toLowerCase() === 'إلغاء') {
-                await message.react('❌');
+                await safeReact('❌');
                 await sendReply(`✅ *تم الإلغاء بنجاح!* ✨${signature}`);
                 clearState(userIdRaw);
                 return;
             }
-// استقبال اختيار الطالب من قائمة الفحص
+
+            // استقبال اختيار الطالب من قائمة الفحص
             if (state.step === 'student_menu_choice') {
                 await processStudentChoice(content, message, sendReply, state, clearState, userIdRaw, MessageMedia, signature);
                 return;
@@ -981,10 +1034,10 @@ client.on('message_create', async message => {
                 if (message.hasMedia && message.type === 'document') {
                     const media = await message.downloadMedia();
                     if (media.mimetype === 'application/pdf') {
-                        await message.react('⏳');
+                        await safeReact('⏳');
                         fs.writeFileSync(path.join(manualDir, 'manual.pdf'), Buffer.from(media.data, 'base64'));
                         await sendReply(`✅ *تم حفظ كتاب الدليل (PDF) بنجاح!* ✨\nيمكن للطلاب الآن استدعاءه بأمر !دليل.${signature}`);
-                        await message.react('✅');
+                        await safeReact('✅');
                     } else { await sendReply(`⚠️ *يرجى إرسال ملف بصيغة PDF فقط!*${signature}`); }
                 } else { await sendReply(`⚠️ *لم تقم بإرسال أي ملف PDF.* يرجى المحاولة مرة أخرى.${signature}`); }
                 clearState(userIdRaw); return;
@@ -992,13 +1045,49 @@ client.on('message_create', async message => {
 
             if (state.step === 'waiting_for_manual_video') {
                 if (message.hasMedia && message.type === 'video') {
-                    await message.react('⏳');
+                    await safeReact('⏳');
                     const media = await message.downloadMedia();
                     fs.writeFileSync(path.join(manualDir, 'tutorial.mp4'), Buffer.from(media.data, 'base64'));
                     await sendReply(`✅ *تم حفظ فيديو الشرح بنجاح!* ✨\nسيتم إرساله للطلاب مع أمر !دليل.${signature}`);
-                    await message.react('✅');
+                    await safeReact('✅');
                 } else { await sendReply(`⚠️ *لم تقم بإرسال أي فيديو.* يرجى المحاولة مرة أخرى.${signature}`); }
                 clearState(userIdRaw); return;
+            }
+
+            // --- معالج الوضع التلقائي (جديد) ---
+            if (state.step === 'select_pdf_type_auto') {
+                const option = parseInt(content);
+                if (option !== 1 && option !== 2) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار 1 للمحاضرة أو 2 للملخص.${signature}`); return; }
+                
+                state.pdfType = option === 1 ? 'محاضرة' : 'ملخص';
+                state.step = 'waiting_form_auto'; 
+                updateState(userIdRaw, replyTo, state);
+                
+                await sendReply(`✅ *تم التحضير بنجاح!*\nيرجى نسخ الاستمارة التالية وملئها (المادة والأستاذ ورقم المحاضرة فقط):\n\nالمادة: \nالأستاذ: \nرقم ${state.pdfType}: \n\n⚠️ *ملاحظة:* البيانات الأخرى (الشعبة، الفصل، الفوج) تم تعبئتها تلقائياً.${signature}`);
+                return;
+            }
+
+            if (state.step === 'waiting_form_auto') {
+                const lines = content.split('\n'); const info = {};
+                lines.forEach(line => {
+                    if (line.includes('رقم')) info.number = line.split(':')[1]?.trim();
+                    if (line.includes('المادة')) info.subject = line.split(':')[1]?.trim();
+                    if (line.includes('الأستاذ') || line.includes('الاستاد')) info.professor = line.split(':')[1]?.trim();
+                });
+                
+                // التحقق من البيانات المطلوبة فقط
+                if (!info.number || !info.subject || !info.professor) { 
+                    await sendReply(`⚠️ *الاستمارة ناقصة!* يرجى ملء (المادة، الأستاذ، الرقم).${signature}`); return; 
+                }
+                
+                state.formData = info;
+                // الفوج تم جلبه مسبقاً من الوضع التلقائي
+                state.formData.group = state.groupName; 
+                
+                state.step = 'waiting_pdf'; 
+                updateState(userIdRaw, replyTo, state);
+                await sendReply(`✅ *تم استلام البيانات.* يرجى الآن إرسال ملف الـ *PDF* المطلوب.${signature}`);
+                return;
             }
 
             if (state.step === 'select_pdf_type') {
@@ -1091,8 +1180,8 @@ client.on('message_create', async message => {
                 if (message.hasMedia && message.type === 'document') {
                     const media = await message.downloadMedia();
                     if (media.mimetype === 'application/pdf') {
-                        await message.react('⏳');
-                        const caption = `📚 *${state.pdfType} جديد*\n📖 المادة: ${state.formData.subject}\n📝 رقم: ${state.formData.number}\n🏫 الفصل: ${state.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n👥 الفوج: ${state.formData.group}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
+                        await safeReact('⏳');
+                        const caption = `📚 *${state.pdfType} جديد*\n📖 المادة: ${state.formData.subject}\n📝 رقم: ${state.formData.number}\n🏫 الفصل: ${state.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n👥 الفوج: ${state.formData.group || 'غير محدد'}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
                         try {
                             const archiveMsg = await client.sendMessage(PDF_ARCHIVE_GROUP, media, { caption });
@@ -1103,7 +1192,7 @@ client.on('message_create', async message => {
                             const newId = result.rows[0].id;
                             
                             await sendReply(`✅ *تم حفظ الـ ${state.pdfType} بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📝 الرقم: ${state.formData.number}\n🔑 *كود التحميل السريع:* irizi${newId}${signature}`);
-                            await message.react('✅');
+                            await safeReact('✅');
                         } catch (error) {
                             console.error('خطأ في الحفظ:', error);
                             await sendReply(`❌ *حدث خطأ أثناء الحفظ!* يرجى المحاولة مرة أخرى.${signature}`);
@@ -1127,7 +1216,7 @@ client.on('message_create', async message => {
                     );
                     
                     if (isImage || isImageDocument) {
-                        await message.react('⏳');
+                        await safeReact('⏳');
                         const caption = `📸 *امتحان جديد*\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}\n🏫 الفصل: ${state.className}\n👨‍🏫 الأستاذ: ${state.formData.professor}\n📚 الشعبة: ${state.sectionName}\n👤 أضيف بواسطة: ${senderName}\n📅 التاريخ: ${new Date().toLocaleDateString('ar-EG')}\n${signature}`;
 
                         try {
@@ -1140,7 +1229,7 @@ client.on('message_create', async message => {
                             const newId = result.rows[0].id;
 
                             await sendReply(`✅ *تم حفظ صورة الامتحان بنجاح!* 🎉\n📖 المادة: ${state.formData.subject}\n📅 السنة/الدورة: ${state.formData.number}\n🔑 *كود التحميل السريع:* irizi${newId}${signature}`);
-                            await message.react('✅');
+                            await safeReact('✅');
                         } catch (error) {
                             console.error('خطأ في الحفظ:', error);
                             await sendReply(`❌ *حدث خطأ أثناء الحفظ!* يرجى المحاولة مرة أخرى.${signature}`);
@@ -1226,7 +1315,7 @@ client.on('message_create', async message => {
                 }
                 
                 const selectedItem = state.availableItems[option - 1];
-                await message.react('⏳');
+                await safeReact('⏳');
                 
                 try {
                     const archiveGroupId = state.downloadType === 'امتحان' ? EXAMS_ARCHIVE_GROUP : PDF_ARCHIVE_GROUP;
@@ -1240,15 +1329,15 @@ client.on('message_create', async message => {
                         await sendReply(media, { 
                             caption: `📥 *${state.downloadType}*\n📖 المادة: ${selectedItem.subject_name}\n${state.downloadType === 'امتحان' ? '📅 السنة/الدورة' : '📝 الرقم'}: ${selectedItem.lecture_number}\n👨‍🏫 الأستاذ: ${selectedItem.professor_name}${signature}` 
                         });
-                        await message.react('✅');
+                        await safeReact('✅');
                     } else {
                         await sendReply(`❌ *عذراً، لم أتمكن من استرجاع الملف.* قد يكون تم حذفه من الأرشيف.${signature}`);
-                        await message.react('❌');
+                        await safeReact('❌');
                     }
                 } catch (error) {
                     console.error('خطأ في التحميل:', error);
                     await sendReply(`❌ *حدث خطأ أثناء تحميل الملف!* يرجى المحاولة لاحقاً.${signature}`);
-                    await message.react('❌');
+                    await safeReact('❌');
                 }
                 
                 clearState(userIdRaw);
@@ -1407,7 +1496,7 @@ client.on('message_create', async message => {
                     
                 } else if (content === '3') {
                     // 3. تحديث البيانات
-                    await message.react('🔄');
+                    await safeReact('🔄');
                     await sendReply(`🔄 *تم مزامنة وتحديث البيانات مع قاعدة البيانات بنجاح!* ✨${signature}`);
                     clearState(userIdRaw);
                     return;
@@ -1427,11 +1516,11 @@ client.on('message_create', async message => {
                 }
                 
                 try {
-                    await message.react('⏳');
+                    await safeReact('⏳');
                     const checkRes = await db.query('SELECT * FROM lectures WHERE id = $1', [fileId]);
                     
                     if (checkRes.rows.length === 0) {
-                        await message.react('❌');
+                        await safeReact('❌');
                         await sendReply(`⚠️ *عذراً!* لم يتم العثور على أي ملف بهذا الـ ID (${fileId}) في قاعدة البيانات.${signature}`);
                         clearState(userIdRaw);
                         return;
@@ -1440,12 +1529,12 @@ client.on('message_create', async message => {
                     const fileData = checkRes.rows[0];
                     await db.query('DELETE FROM lectures WHERE id = $1', [fileId]);
                     
-                    await message.react('✅');
+                    await safeReact('✅');
                     await sendReply(`✅ *تم الحذف بنجاح!* 🗑️\n\nتفاصيل الملف المحذوف:\n🏷️ النوع: ${fileData.type}\n📖 المادة: ${fileData.subject_name}\n🔢 الرقم/السنة: ${fileData.lecture_number}\n${signature}`);
                     
                 } catch (error) {
                     console.error('خطأ في عملية الحذف:', error);
-                    await message.react('❌');
+                    await safeReact('❌');
                     await sendReply(`❌ *حدث خطأ أثناء محاولة الحذف!* يرجى التحقق من الكونسول.${signature}`);
                 }
                 clearState(userIdRaw);
@@ -1655,6 +1744,36 @@ client.on('message_create', async message => {
                 }
                 clearState(userIdRaw);
                 return;
+            }
+        } // نهاية قسم userState.has(userIdRaw)
+
+        // ============================================
+        // نظام الذكاء الاصطناعي (AI) التفاعلي
+        // (تم نقله للأسفل لكي لا يتعارض مع الأوامر)
+        // ============================================
+        if (content && !content.startsWith('!') && !userState.has(userIdRaw)) {
+            // 🛑 حماية الكوطا: يجاوب غير فالخاص باش ما يتقاداش ليك الساروت
+            if (isGroupMessage) return;
+
+            try {
+                let availableLecturesText = "لا توجد ملفات حاليا.";
+                const res = await db.query('SELECT id, type, subject_name, professor_name FROM lectures ORDER BY id DESC LIMIT 50');
+                
+                if (res.rows.length > 0) {
+                    availableLecturesText = res.rows.map(r => 
+                        `- كود: irizi${r.id} | النوع: ${r.type} | المادة: ${r.subject_name} | الأستاذ: ${r.professor_name}`
+                    ).join('\n');
+                }
+
+                const aiReply = await getAIResponse(content, senderName, availableLecturesText);
+
+                if (aiReply && !aiReply.includes('IGNORE')) {
+                    await safeReact('🤖');
+                    await sendReply(aiReply + signature);
+                }
+
+            } catch (error) {
+                console.error("خطأ في نظام الذكاء الاصطناعي المدمج:", error);
             }
         }
 
