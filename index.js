@@ -128,7 +128,6 @@ const subjects = new Map();
 // ============================================
 // الإعدادات والمتغيرات 
 // ============================================
-let groupId = null;
 let isBotReady = false;
 
 const PDF_ARCHIVE_GROUP = process.env.PDF_ARCHIVE_GROUP || '120363403563982270@g.us';
@@ -161,7 +160,7 @@ if (!fs.existsSync(manualDir)) { fs.mkdirSync(manualDir, { recursive: true }); }
 const signature = "\n\n━━━━━━━━━━━━━━━━━━\n👨‍💻 *Dev by:* IRIZI ✨\n🤲 *لا تنسونا بصالح الدعاء* 🤍";
 
 // ============================================
-// دوال إدارة حالة المستخدم مع المؤقت
+// دوال إدارة حالة المستخدم مع المؤقت (Timeout)
 // ============================================
 function updateState(userId, replyTo, state) {
     if (userTimeouts.has(userId)) {
@@ -229,40 +228,50 @@ function reverseArabicText(text) {
 }
 
 // ============================================
-// دالة استخراج البيانات من اسم المجموعة - النسخة المحسنة الجديدة
+// دالة استخراج البيانات من اسم المجموعة - النسخة المُجبرة + Debug
 // ============================================
 function parseGroupMetadata(groupName) {
+    console.log(`[DEBUG] الاسم الأصلي للمجموعة: "${groupName}"`);
+
     let sectionName = '';
     let className = '';
-    let groupNumber = '';
+    let groupNumber = 'غير محدد';
 
-    // تنظيف الأخطاء الإملائية الشائعة
-    groupName = groupName
+    // تنظيف النص
+    let clean = groupName
         .replace(/الاةل/g, 'الأول')
         .replace(/اةل/g, 'أول')
-        .replace(/الثانى/g, 'الثاني');
+        .replace(/الثانى/g, 'الثاني')
+        .replace(/فصل\s*(\d+)/gi, 'الفصل $1');
 
-    // 1. استخراج الشعبة
-    const sectionMatch = groupName.match(/شعبة\s+(.+?)(?=\s+الفصل|\s+فصل|\s+المجموعات|\s+المجموعة|\s+الفوج|$)/i);
-    if (sectionMatch) {
-        sectionName = sectionMatch[1].trim();
+    console.log(`[DEBUG] بعد التنظيف: "${clean}"`);
+
+    // 1. استخراج الشعبة (أقوى regex)
+    let match = clean.match(/شعبة\s*[:\-]?\s*(.+?)(?=\s*(الفصل|فصل|المجموعات|المجموعة|الفوج|مجموعة|$))/i);
+    if (match && match[1]) {
+        sectionName = match[1].trim();
+        console.log(`[DEBUG] تم استخراج الشعبة: "${sectionName}"`);
     }
 
     // 2. استخراج الفصل
     for (const c of FIXED_CLASSES) {
-        if (groupName.includes(c)) {
+        if (clean.includes(c)) {
             className = c;
+            console.log(`[DEBUG] تم استخراج الفصل: "${className}"`);
             break;
         }
     }
 
-    // 3. استخراج رقم المجموعة / الفوج
-    const groupMatch = groupName.match(/مجموع[ةه]ات?\s+(.+?)(?=\s+الفصل|\s+شعبة|$)/i);
-    if (groupMatch) {
-        groupNumber = groupMatch[1].trim();
+    // 3. استخراج رقم المجموعة
+    match = clean.match(/مجموع[ةه]ات?\s*[:\-]?\s*(.+?)(?=\s*(الفصل|شعبة|$))/i);
+    if (match && match[1]) {
+        groupNumber = match[1].trim();
+        console.log(`[DEBUG] تم استخراج المجموعة/الفوج: "${groupNumber}"`);
     }
 
-    return { sectionName, className, groupNumber: groupNumber || 'غير محدد' };
+    console.log(`[DEBUG] النتيجة النهائية: شعبة="${sectionName}" | فصل="${className}" | مجموعة="${groupNumber}"`);
+
+    return { sectionName, className, groupNumber };
 }
 
 async function generateLecturesTablePDF(lecturesData) {
@@ -923,7 +932,7 @@ client.on('message_create', async message => {
             return;
         }
 
-        // ====================== التعديل الجديد: أمر !اضافة_pdf ======================
+        // ====================== أمر !اضافة_pdf مع Debug المُجبر ======================
         if (content === '!اضافة_pdf' || content === '!add pdf') {
             if (!isGroupMessage) {
                 return await sendReply(`⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
@@ -932,6 +941,14 @@ client.on('message_create', async message => {
             const chat = await message.getChat();
             const groupName = chat.name;
             const parsedData = parseGroupMetadata(groupName);
+
+            // إرسال رسالة Debug واضحة للمستخدم (لمعرفة المشكلة)
+            await sendReply(`🔍 *Debug - تحليل اسم المجموعة:*\n` +
+                `الاسم الكامل: ${groupName}\n` +
+                `الشعبة المستخرجة: ${parsedData.sectionName || '❌ لم يتم'}\n` +
+                `الفصل المستخرج: ${parsedData.className || '❌ لم يتم'}\n` +
+                `المجموعة/الفوج: ${parsedData.groupNumber}\n\n` +
+                `📌 إذا ظهر "لم يتم" → أرسل لي اسم المجموعة بالضبط وسأحسنه فوراً.`, { quotedMessageId: message.id._serialized });
 
             let sectionId = null;
             let sectionName = parsedData.sectionName;
@@ -950,22 +967,21 @@ client.on('message_create', async message => {
             await safeReact('📄');
 
             if (sectionId && parsedData.className) {
-                await sendReply(`📄 *إضافة ملف جديد - وضع تلقائي* 📄
+                await sendReply(`📄 *إضافة ملف جديد - وضع تلقائي ناجح* 📄
 ━━━━━━━━━━━━━━━━━━
-✅ *تم استخراج البيانات بنجاح من اسم المجموعة:*
+✅ تم استخراج البيانات بنجاح:
 
 🏷️ الشعبة: ${sectionName}
 🏫 الفصل: ${parsedData.className}
 👥 المجموعة/الفوج: ${parsedData.groupNumber}
 
 ━━━━━━━━━━━━━━━━━━
-يرجى ملء الاستمارة التالية فقط (3 حقول):
-
+أرسل الاستمارة فقط (3 حقول):
 المادة: 
 الأستاذ: 
 رقم المحاضرة: 
 
-⚠️ أرسلها بنفس الشكل مع النقطتين :${signature}`);
+${signature}`);
 
                 updateState(userIdRaw, replyTo, { 
                     step: 'waiting_form_auto', 
@@ -975,12 +991,7 @@ client.on('message_create', async message => {
                     groupName: parsedData.groupNumber 
                 });
             } else {
-                await sendReply(`⚠️ *تعذر الاستخراج التلقائي من اسم المجموعة.*
-يرجى اختيار النوع:
-1️⃣ محاضرة
-2️⃣ ملخص
-
-أرسل الرقم.${signature}`);
+                await sendReply(`⚠️ *تعذر الاستخراج التلقائي الكامل.*\nيرجى اختيار النوع يدوياً:\n1️⃣ محاضرة\n2️⃣ ملخص\n\nأرسل الرقم.${signature}`);
                 updateState(userIdRaw, replyTo, { step: 'select_pdf_type' });
             }
             return;
@@ -1049,7 +1060,7 @@ client.on('message_create', async message => {
                 clearState(userIdRaw); return;
             }
 
-            // معالج الاستمارة التلقائية الجديدة
+            // معالج الاستمارة التلقائية (3 حقول فقط)
             if (state.step === 'waiting_form_auto') {
                 const lines = content.split('\n');
                 const info = {};
@@ -1725,6 +1736,7 @@ client.on('message_create', async message => {
             }
         }
 
+        // نظام الذكاء الاصطناعي
         if (content && !content.startsWith('!') && !userState.has(userIdRaw)) {
             if (isGroupMessage) return;
 
