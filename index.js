@@ -8,6 +8,7 @@ const { exec } = require('child_process');
 const { handleStudentCommand, processStudentChoice } = require('./scrab.js');
 const db = require('./database.js');
 const { getAIResponse } = require('./ai.js');
+
 const client = new Client({
     authStrategy: new LocalAuth({ clientId: "whatsapp-bot" }),
     puppeteer: {
@@ -156,11 +157,11 @@ const subjectsFile = './subjects.json';
 const manualDir = path.join(__dirname, 'manual');
 if (!fs.existsSync(manualDir)) { fs.mkdirSync(manualDir, { recursive: true }); }
 
-// توقيع محسّن ومزخرف لرسائل البوت مع إضافة دعاء
+// توقيع
 const signature = "\n\n━━━━━━━━━━━━━━━━━━\n👨‍💻 *Dev by:* IRIZI ✨\n🤲 *لا تنسونا بصالح الدعاء* 🤍";
 
 // ============================================
-// دوال إدارة حالة المستخدم مع المؤقت (Timeout)
+// دوال إدارة حالة المستخدم مع المؤقت
 // ============================================
 function updateState(userId, replyTo, state) {
     if (userTimeouts.has(userId)) {
@@ -228,20 +229,26 @@ function reverseArabicText(text) {
 }
 
 // ============================================
-// دالة استخراج البيانات من اسم المجموعة (جديدة)
+// دالة استخراج البيانات من اسم المجموعة - النسخة المحسنة الجديدة
 // ============================================
 function parseGroupMetadata(groupName) {
     let sectionName = '';
     let className = '';
     let groupNumber = '';
 
-    // 1. استخراج الشعبة (النص بين "شعبة" و "الفصل")
-    const sectionMatch = groupName.match(/شعبة\s+(.+?)\s+الفصل/i);
+    // تنظيف الأخطاء الإملائية الشائعة
+    groupName = groupName
+        .replace(/الاةل/g, 'الأول')
+        .replace(/اةل/g, 'أول')
+        .replace(/الثانى/g, 'الثاني');
+
+    // 1. استخراج الشعبة
+    const sectionMatch = groupName.match(/شعبة\s+(.+?)(?=\s+الفصل|\s+فصل|\s+المجموعات|\s+المجموعة|\s+الفوج|$)/i);
     if (sectionMatch) {
         sectionName = sectionMatch[1].trim();
     }
 
-    // 2. استخراج الفصل (مطابقة مع القائمة الثابتة)
+    // 2. استخراج الفصل
     for (const c of FIXED_CLASSES) {
         if (groupName.includes(c)) {
             className = c;
@@ -249,13 +256,13 @@ function parseGroupMetadata(groupName) {
         }
     }
 
-    // 3. استخراج رقم المجموعة (النص بعد "مجموعة" أو "مجموعات")
-    const groupMatch = groupName.match(/مجموع[ةه]ات?\s+(.+)/i);
+    // 3. استخراج رقم المجموعة / الفوج
+    const groupMatch = groupName.match(/مجموع[ةه]ات?\s+(.+?)(?=\s+الفصل|\s+شعبة|$)/i);
     if (groupMatch) {
         groupNumber = groupMatch[1].trim();
     }
 
-    return { sectionName, className, groupNumber };
+    return { sectionName, className, groupNumber: groupNumber || 'غير محدد' };
 }
 
 async function generateLecturesTablePDF(lecturesData) {
@@ -419,7 +426,6 @@ async function generateLecturesTablePDF(lecturesData) {
 }
 
 // أحداث العميل
-// ============================================
 client.on('qr', qr => { qrcode.generate(qr, { small: true }); });
 
 client.on('ready', async () => {
@@ -439,13 +445,10 @@ client.on('message_create', async message => {
     try {
         if (!isBotReady || !message) return;
 
-        // دالة آمنة لوضع الإيموجي لتفادي خطأ Reaction send error
         const safeReact = async (emoji) => {
             try {
                 await message.react(emoji);
-            } catch (e) {
-                // تجاهل الخطأ بصمت لتفادي تلوث الشاشة
-            }
+            } catch (e) {}
         };
 
         const isGroupMessage = message.from.includes('@g.us') || message.to.includes('@g.us');
@@ -472,13 +475,11 @@ client.on('message_create', async message => {
             }
         };
 
-        // أمر فحص معلومات الطالب
         if (content.startsWith('!فحص')) {
             await handleStudentCommand(content, message, sendReply, updateState, userIdRaw, replyTo, signature);
             return;
         }
 
-        // --- ميزة التحميل المباشر عبر الكود (مثال: irizi15) ---
         const directDownloadMatch = content.match(/^irizi(\d+)$/i);
         if (directDownloadMatch) {
             const fileId = parseInt(directDownloadMatch[1]);
@@ -517,7 +518,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أمر الطرد من المجموعة (Kick) ---
         if (isGroupMessage && (content === '!طرد' || content === '!kick')) {
             const chat = await message.getChat();
             let isSenderAdmin = isOwner || Array.from(admins).map(getCleanNumber).includes(authorNumber);
@@ -554,7 +554,6 @@ client.on('message_create', async message => {
             return;
         }
 
-        // --- أوامر القفل والفتح مع دعم التوقيت ---
         const lockMatch = content.match(/^!(قفل|lock)(?:\s+(.+))?$/i);
         const unlockMatch = content.match(/^!(فتح|unlock)(?:\s+(.+))?$/i);
 
@@ -924,24 +923,23 @@ client.on('message_create', async message => {
             return;
         }
 
-        // ============================================
-        // تعديل أمر !اضافة_pdf ليدعم الاستخراج التلقائي
-        // ============================================
+        // ====================== التعديل الجديد: أمر !اضافة_pdf ======================
         if (content === '!اضافة_pdf' || content === '!add pdf') {
-            if (!isGroupMessage) return;
-            if (sections.size === 0) { await sendReply(`⚠️ *لم يتم إعداد بيانات الشعب بعد!* الرجاء إضافتها من لوحة الإدارة أولاً.${signature}`); return; }
+            if (!isGroupMessage) {
+                return await sendReply(`⚠️ *هذا الأمر يعمل داخل المجموعات فقط.*${signature}`);
+            }
 
             const chat = await message.getChat();
             const groupName = chat.name;
             const parsedData = parseGroupMetadata(groupName);
 
-            // محاولة إيجاد ID الشعبة من الاسم المستخرج
             let sectionId = null;
-            let sectionName = null;
-            if (parsedData.sectionName) {
+            let sectionName = parsedData.sectionName;
+
+            if (sectionName) {
                 for (const [id, name] of sections) {
-                    // استخدام includes لتجاوز مشاكل التشكيل البسيطة أو المسافات
-                    if (name === parsedData.sectionName || name.includes(parsedData.sectionName) || parsedData.sectionName.includes(name)) {
+                    if (name.toLowerCase().includes(sectionName.toLowerCase()) ||
+                        sectionName.toLowerCase().includes(name.toLowerCase())) {
                         sectionId = id;
                         sectionName = name;
                         break;
@@ -949,44 +947,42 @@ client.on('message_create', async message => {
                 }
             }
 
-            // التحقق من اكتمال البيانات المستخرجة
-            if (sectionId && parsedData.className && parsedData.groupNumber) {
-                await safeReact('📄');
-                await sendReply(`📄 *إضافة ملف جديد (وضع تلقائي)* 📄
+            await safeReact('📄');
+
+            if (sectionId && parsedData.className) {
+                await sendReply(`📄 *إضافة ملف جديد - وضع تلقائي* 📄
 ━━━━━━━━━━━━━━━━━━
-✅ *تم التعرف على المجموعة:*
+✅ *تم استخراج البيانات بنجاح من اسم المجموعة:*
+
 🏷️ الشعبة: ${sectionName}
 🏫 الفصل: ${parsedData.className}
-👥 الفوج: ${parsedData.groupNumber}
+👥 المجموعة/الفوج: ${parsedData.groupNumber}
 
-يرجى اختيار نوع الملف:
-1️⃣ 📚 محاضرة
-2️⃣ 📝 ملخص
+━━━━━━━━━━━━━━━━━━
+يرجى ملء الاستمارة التالية فقط (3 حقول):
 
-💡 _أرسل الرقم أو اكتب_ *إلغاء*${signature}`);
-                
+المادة: 
+الأستاذ: 
+رقم المحاضرة: 
+
+⚠️ أرسلها بنفس الشكل مع النقطتين :${signature}`);
+
                 updateState(userIdRaw, replyTo, { 
-                    step: 'select_pdf_type_auto', 
+                    step: 'waiting_form_auto', 
                     sectionId: sectionId, 
                     sectionName: sectionName, 
                     className: parsedData.className, 
                     groupName: parsedData.groupNumber 
                 });
-                return;
+            } else {
+                await sendReply(`⚠️ *تعذر الاستخراج التلقائي من اسم المجموعة.*
+يرجى اختيار النوع:
+1️⃣ محاضرة
+2️⃣ ملخص
+
+أرسل الرقم.${signature}`);
+                updateState(userIdRaw, replyTo, { step: 'select_pdf_type' });
             }
-
-            // إذا فشل الاستخراج التلقائي، نعود للطريقة اليدوية
-            await safeReact('📄');
-            await sendReply(`📄 *إضافة ملف جديد* 📄
-━━━━━━━━━━━━━━━━━━
-⚠️ *تعذر قراءة بيانات المجموعة تلقائياً.*
-يرجى اختيار نوع الملف الذي تود إضافته:
-
-1️⃣ 📚 محاضرة
-2️⃣ 📝 ملخص
-
-💡 _أرسل الرقم المطلوب أو اكتب_ *إلغاء* _للرجوع._${signature}`);
-            updateState(userIdRaw, replyTo, { step: 'select_pdf_type' });
             return;
         }
 
@@ -1024,7 +1020,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // استقبال اختيار الطالب من قائمة الفحص
             if (state.step === 'student_menu_choice') {
                 await processStudentChoice(content, message, sendReply, state, clearState, userIdRaw, MessageMedia, signature);
                 return;
@@ -1054,39 +1049,29 @@ client.on('message_create', async message => {
                 clearState(userIdRaw); return;
             }
 
-            // --- معالج الوضع التلقائي (جديد) ---
-            if (state.step === 'select_pdf_type_auto') {
-                const option = parseInt(content);
-                if (option !== 1 && option !== 2) { await sendReply(`⚠️ *خيار غير صحيح!* يرجى اختيار 1 للمحاضرة أو 2 للملخص.${signature}`); return; }
-                
-                state.pdfType = option === 1 ? 'محاضرة' : 'ملخص';
-                state.step = 'waiting_form_auto'; 
-                updateState(userIdRaw, replyTo, state);
-                
-                await sendReply(`✅ *تم التحضير بنجاح!*\nيرجى نسخ الاستمارة التالية وملئها (المادة والأستاذ ورقم المحاضرة فقط):\n\nالمادة: \nالأستاذ: \nرقم ${state.pdfType}: \n\n⚠️ *ملاحظة:* البيانات الأخرى (الشعبة، الفصل، الفوج) تم تعبئتها تلقائياً.${signature}`);
-                return;
-            }
-
+            // معالج الاستمارة التلقائية الجديدة
             if (state.step === 'waiting_form_auto') {
-                const lines = content.split('\n'); const info = {};
+                const lines = content.split('\n');
+                const info = {};
+                
                 lines.forEach(line => {
-                    if (line.includes('رقم')) info.number = line.split(':')[1]?.trim();
                     if (line.includes('المادة')) info.subject = line.split(':')[1]?.trim();
                     if (line.includes('الأستاذ') || line.includes('الاستاد')) info.professor = line.split(':')[1]?.trim();
+                    if (line.includes('رقم')) info.number = line.split(':')[1]?.trim();
                 });
-                
-                // التحقق من البيانات المطلوبة فقط
-                if (!info.number || !info.subject || !info.professor) { 
-                    await sendReply(`⚠️ *الاستمارة ناقصة!* يرجى ملء (المادة، الأستاذ، الرقم).${signature}`); return; 
+
+                if (!info.subject || !info.professor || !info.number) {
+                    await sendReply(`⚠️ *الاستمارة ناقصة!* يرجى ملء الثلاثة حقول (المادة، الأستاذ، رقم المحاضرة).${signature}`);
+                    return;
                 }
-                
+
                 state.formData = info;
-                // الفوج تم جلبه مسبقاً من الوضع التلقائي
-                state.formData.group = state.groupName; 
-                
-                state.step = 'waiting_pdf'; 
+                state.formData.group = state.groupName;
+                state.step = 'waiting_pdf';
                 updateState(userIdRaw, replyTo, state);
-                await sendReply(`✅ *تم استلام البيانات.* يرجى الآن إرسال ملف الـ *PDF* المطلوب.${signature}`);
+
+                await sendReply(`✅ *تم استلام البيانات بنجاح!*
+يرجى إرسال ملف **PDF** الآن.${signature}`);
                 return;
             }
 
@@ -1344,7 +1329,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- لوحة الإدارة ---
             if (state.step === 'admin_menu') {
                 const option = parseInt(content);
                 
@@ -1458,10 +1442,8 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- إدارة المحاضرات (الخيار 10) ---
             if (state.step === 'manage_lectures') {
                 if (content === '1') {
-                    // 1. عرض الإحصائيات
                     try {
                         const res = await db.query('SELECT type, COUNT(*) as count FROM lectures GROUP BY type');
                         let statsMsg = `📊 *إحصائيات الأرشيف الشامل*\n━━━━━━━━━━━━━━━━━━\n\n`;
@@ -1488,14 +1470,12 @@ client.on('message_create', async message => {
                     return;
                     
                 } else if (content === '2') {
-                    // 2. حذف محاضرة
                     state.step = 'delete_lecture_id';
                     updateState(userIdRaw, replyTo, state);
                     await sendReply(`🗑️ *حذف ملف من الأرشيف*\n━━━━━━━━━━━━━━━━━━\n\nيرجى إرسال *رقم الـ ID* الخاص بالملف المراد حذفه.\n\n💡 _ملاحظة: يمكنك معرفة الرقم انطلاقا من كود التحميل (مثلا إذا كان الكود irizi15، أرسل 15 فقط)._${signature}`);
                     return;
                     
                 } else if (content === '3') {
-                    // 3. تحديث البيانات
                     await safeReact('🔄');
                     await sendReply(`🔄 *تم مزامنة وتحديث البيانات مع قاعدة البيانات بنجاح!* ✨${signature}`);
                     clearState(userIdRaw);
@@ -1506,7 +1486,6 @@ client.on('message_create', async message => {
                 }
             }
 
-            // --- تأكيد حذف المحاضرة ---
             if (state.step === 'delete_lecture_id') {
                 const fileId = parseInt(content);
                 
@@ -1541,7 +1520,6 @@ client.on('message_create', async message => {
                 return;
             }
 
-            // --- معالجة أوامر الإدارة الفرعية الأخرى ---
             if (state.step === 'add_admin') {
                 const adminNumber = content.replace(/[^0-9]/g, '');
                 if (adminNumber.length < 10) { await sendReply(`⚠️ *رقم غير صحيح!*${signature}`); return; }
@@ -1745,14 +1723,9 @@ client.on('message_create', async message => {
                 clearState(userIdRaw);
                 return;
             }
-        } // نهاية قسم userState.has(userIdRaw)
+        }
 
-        // ============================================
-        // نظام الذكاء الاصطناعي (AI) التفاعلي
-        // (تم نقله للأسفل لكي لا يتعارض مع الأوامر)
-        // ============================================
         if (content && !content.startsWith('!') && !userState.has(userIdRaw)) {
-            // 🛑 حماية الكوطا: يجاوب غير فالخاص باش ما يتقاداش ليك الساروت
             if (isGroupMessage) return;
 
             try {
